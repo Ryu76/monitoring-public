@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # Oracle Database 23ai Free (or 21c Express) for Development
+  # Note: Requires appropriate licensing/image access in production.
+  # Here we mock it with PostgreSQL for a lighter compose file, 
+  # but assuming the project requires Oracle, we use the Oracle Free image.
+  database:
+    image: container-registry.oracle.com/database/free:latest
+    container_name: nexusmon-db
+    environment:
+      - ORACLE_PWD=CHANGEME
+    ports:
+      - "1521:1521"
+    volumes:
+      - oradata:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend Service (Includes API + Workers)
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nexusmon-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_USER=example_db_user
+      - DB_PASSWORD=CHANGEME
+      - DB_HOST=database
+      - DB_PORT=1521
+      - DB_SERVICE_NAME=FREE
+      - SECRET_KEY=your_production_secret_key_here
+      - INITIAL_ADMIN_PASSWORD=CHANGE_ME
+    depends_on:
+      database:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app # For live reload in dev
+
+  # Vue 3 Frontend (Nginx for production build)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: nexusmon-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  oradata:

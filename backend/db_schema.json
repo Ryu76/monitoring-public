@@ -1,0 +1,1270 @@
+{
+  "mon_agent_heartbeat_hist": [
+    {
+      "name": "heartbeat_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "agent_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "server_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "delay_ms",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "local_queue_count",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "collected_at",
+      "type": "TIMESTAMP",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "received_at",
+      "type": "TIMESTAMP",
+      "nullable": false,
+      "primary_key": false
+    }
+  ],
+  "mon_alert_policy": [
+    {
+      "name": "policy_id",
+      "type": "VARCHAR(50)",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "policy_name",
+      "type": "VARCHAR(100)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "severity_level",
+      "type": "VARCHAR(20)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "notify_channel",
+      "type": "VARCHAR(50)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "is_active",
+      "type": "INTEGER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "created_at",
+      "type": "DATE",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "mon_event": [
+    {
+      "name": "event_id",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "event_uid",
+      "type": "VARCHAR(40)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "rule_id",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "server_id",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "target_type_code",
+      "type": "VARCHAR(30)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "target_key",
+      "type": "VARCHAR(200)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "severity_code",
+      "type": "VARCHAR(30)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "status_code",
+      "type": "VARCHAR(30)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "title",
+      "type": "VARCHAR(500)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "message",
+      "type": "VARCHAR(2000)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "first_occurred_at",
+      "type": "TIMESTAMP",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "last_occurred_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "recovered_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "occurrence_count",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "ack_user_id",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "ack_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "incident_id",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "mon_event_rule": [
+    {
+      "name": "rule_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "rule_name",
+      "type": "VARCHAR(200)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "target_metric",
+      "type": "VARCHAR(60)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "compare_op",
+      "type": "VARCHAR(10)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "warn_threshold",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "crit_threshold",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "fatal_threshold",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "duration_sec",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "continuous_count",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "recover_threshold",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "recover_duration_sec",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "severity_code",
+      "type": "VARCHAR(30)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "use_yn",
+      "type": "CHAR(1)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "updated_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "mon_incident": [
+    {
+      "name": "incident_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "incident_title",
+      "type": "VARCHAR(500)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "status_code",
+      "type": "VARCHAR(30)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "impact_code",
+      "type": "VARCHAR(30)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "cause_code",
+      "type": "VARCHAR(30)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "assigned_to",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "detected_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "resolved_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "closed_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "created_by",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "updated_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "mon_incident_action": [
+    {
+      "name": "action_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "incident_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "action_user_id",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "action_note",
+      "type": "CLOB",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "action_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "mon_log_entry": [
+    {
+      "name": "log_entry_id",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "server_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "log_source_id",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "log_level",
+      "type": "VARCHAR(30)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "log_message",
+      "type": "CLOB",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "trace_id",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "logged_at",
+      "type": "TIMESTAMP",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "received_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "mon_metric_def": [
+    {
+      "name": "metric_code",
+      "type": "VARCHAR(60)",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "metric_name",
+      "type": "VARCHAR(100)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "category_code",
+      "type": "VARCHAR(30)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "value_type_code",
+      "type": "VARCHAR(30)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "unit_code",
+      "type": "VARCHAR(30)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "agg_type_code",
+      "type": "VARCHAR(30)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "windows_support_yn",
+      "type": "CHAR(1)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "linux_support_yn",
+      "type": "CHAR(1)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "use_yn",
+      "type": "CHAR(1)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "updated_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "mon_metric_hist": [
+    {
+      "name": "metric_hist_id",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "server_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "agent_id",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "metric_code",
+      "type": "VARCHAR(60)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "dimension_key",
+      "type": "VARCHAR(60)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "dimension_value",
+      "type": "VARCHAR(200)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "metric_value",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "string_value",
+      "type": "VARCHAR(1000)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "status_code",
+      "type": "VARCHAR(30)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "quality_code",
+      "type": "VARCHAR(30)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "collected_at",
+      "type": "TIMESTAMP",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "received_at",
+      "type": "TIMESTAMP",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "batch_uid",
+      "type": "VARCHAR(40)",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "mon_server": [
+    {
+      "name": "server_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "server_uid",
+      "type": "VARCHAR(40)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "server_name",
+      "type": "VARCHAR(100)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "host_name",
+      "type": "VARCHAR(255)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "mgmt_ip",
+      "type": "VARCHAR(45)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "service_ip",
+      "type": "VARCHAR(45)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "os_type_code",
+      "type": "VARCHAR(30)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "os_name",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "os_version",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "server_role_code",
+      "type": "VARCHAR(30)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "env_code",
+      "type": "VARCHAR(30)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "importance_code",
+      "type": "VARCHAR(30)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "owner_dept",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "owner_name",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "use_yn",
+      "type": "CHAR(1)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "created_by",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "updated_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "updated_by",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "sys_audit_log": [
+    {
+      "name": "log_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "user_id",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "action_type",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "target_entity",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "target_id",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "ip_address",
+      "type": "VARCHAR(45)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "before_data",
+      "type": "CLOB",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "after_data",
+      "type": "CLOB",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "sys_code": [
+    {
+      "name": "code",
+      "type": "VARCHAR(30)",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "group_code",
+      "type": "VARCHAR(30)",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "code_name",
+      "type": "VARCHAR(100)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "sort_order",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "description",
+      "type": "VARCHAR(1000)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "use_yn",
+      "type": "CHAR(1)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "created_by",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "updated_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "updated_by",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "sys_code_group": [
+    {
+      "name": "group_code",
+      "type": "VARCHAR(30)",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "group_name",
+      "type": "VARCHAR(100)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "description",
+      "type": "VARCHAR(1000)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "use_yn",
+      "type": "CHAR(1)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "created_by",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "updated_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "updated_by",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "sys_permission": [
+    {
+      "name": "permission_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "permission_code",
+      "type": "VARCHAR(50)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "permission_name",
+      "type": "VARCHAR(100)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "description",
+      "type": "VARCHAR(1000)",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "sys_role": [
+    {
+      "name": "role_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "role_code",
+      "type": "VARCHAR(30)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "role_name",
+      "type": "VARCHAR(100)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "description",
+      "type": "VARCHAR(1000)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "use_yn",
+      "type": "CHAR(1)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "created_by",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "sys_user": [
+    {
+      "name": "user_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "login_id",
+      "type": "VARCHAR(50)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "user_name",
+      "type": "VARCHAR(100)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "password_hash",
+      "type": "VARCHAR(255)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "dept_name",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "position_name",
+      "type": "VARCHAR(50)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "email",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "phone",
+      "type": "VARCHAR(50)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "status_code",
+      "type": "VARCHAR(30)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "last_login_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "pwd_changed_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "use_yn",
+      "type": "CHAR(1)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "created_by",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "updated_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "updated_by",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "mon_agent": [
+    {
+      "name": "agent_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "agent_uid",
+      "type": "VARCHAR(40)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "server_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "agent_version",
+      "type": "VARCHAR(50)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "install_path",
+      "type": "VARCHAR(500)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "run_account",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "status_code",
+      "type": "VARCHAR(30)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "started_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "last_connected_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "auto_update_yn",
+      "type": "CHAR(1)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "updated_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "mon_metric_curr": [
+    {
+      "name": "server_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "metric_code",
+      "type": "VARCHAR(60)",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "dimension_key",
+      "type": "VARCHAR(60)",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "dimension_value",
+      "type": "VARCHAR(200)",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "metric_value",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "string_value",
+      "type": "VARCHAR(1000)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "status_code",
+      "type": "VARCHAR(30)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "collected_at",
+      "type": "TIMESTAMP",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "received_at",
+      "type": "TIMESTAMP",
+      "nullable": false,
+      "primary_key": false
+    }
+  ],
+  "mon_server_status_curr": [
+    {
+      "name": "server_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "composite_status",
+      "type": "VARCHAR(30)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "reason_msg",
+      "type": "VARCHAR(500)",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "last_updated_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "sys_role_permission": [
+    {
+      "name": "role_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "permission_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "created_by",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "sys_user_role": [
+    {
+      "name": "user_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "role_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "created_by",
+      "type": "VARCHAR(100)",
+      "nullable": true,
+      "primary_key": false
+    }
+  ],
+  "mon_agent_status_curr": [
+    {
+      "name": "agent_id",
+      "type": "NUMBER",
+      "nullable": false,
+      "primary_key": true
+    },
+    {
+      "name": "agent_status",
+      "type": "VARCHAR(30)",
+      "nullable": false,
+      "primary_key": false
+    },
+    {
+      "name": "delay_ms",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "local_queue_count",
+      "type": "NUMBER",
+      "nullable": true,
+      "primary_key": false
+    },
+    {
+      "name": "last_heartbeat_at",
+      "type": "TIMESTAMP",
+      "nullable": true,
+      "primary_key": false
+    }
+  ]
+}
