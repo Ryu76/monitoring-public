@@ -13,7 +13,7 @@ except Exception as e:
 # SQLAlchemy 동기 엔진 구성
 engine = create_engine(
     get_database_url(),
-    echo=True, # 개발 환경용 쿼리 로깅
+    echo=False, # 개발 환경용 쿼리 로깅
 )
 
 SessionLocal = sessionmaker(

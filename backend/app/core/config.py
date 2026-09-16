@@ -1,32 +1,46 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
 from cryptography.fernet import Fernet
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.dpapi import unprotect_data
 
-def load_encrypted_env(env_path: str = ".env.enc", key_path: str = "env.key") -> dict[str, str]:
-    """Load local encrypted configuration without logging its values."""
-    if not os.path.exists(env_path) or not os.path.exists(key_path):
+
+def load_encrypted_env(env_path: str | None = None, key_path: str | None = None) -> dict[str, str]:
+    """Load DPAPI-protected local development settings without logging values.
+
+    Environment variables supplied by the host remain authoritative.  The encrypted
+    files are optional so ordinary test environments can inject settings directly.
+    """
+    backend_dir = Path(__file__).resolve().parents[2]
+    encrypted_path = Path(env_path) if env_path else backend_dir / ".env.enc"
+    protected_key_path = Path(key_path) if key_path else backend_dir / "env.key.dpapi"
+    if not encrypted_path.is_file() or not protected_key_path.is_file():
         return {}
+
     try:
-        key = open(key_path, "rb").read()
-        encrypted_data = open(env_path, "rb").read()
-        decrypted_data = Fernet(key).decrypt(encrypted_data).decode("utf-8")
+        fernet_key = unprotect_data(protected_key_path.read_bytes())
+        if not fernet_key:
+            return {}
+        decrypted_data = Fernet(fernet_key).decrypt(encrypted_path.read_bytes()).decode("utf-8")
     except Exception:
         return {}
 
-    env_vars: dict[str, str] = {}
+    values: dict[str, str] = {}
     for line in decrypted_data.splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             key, value = line.split("=", 1)
-            env_vars[key.strip()] = value.strip()
-    return env_vars
+            values[key.strip()] = value.strip()
+    return values
 
 
-# Encrypted local configuration, when present, is loaded before Settings validation.
-os.environ.update(load_encrypted_env())
+# The process environment wins over optional DPAPI-protected local development files.
+for _key, _value in load_encrypted_env().items():
+    os.environ.setdefault(_key, _value)
 
 
 class Settings(BaseSettings):
