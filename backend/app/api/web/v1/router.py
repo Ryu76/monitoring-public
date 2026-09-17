@@ -48,6 +48,8 @@ class ServerCheckTargetsRequest(BaseModel):
 
 class ServerUpdateRequest(BaseModel):
     server_name: str = Field(..., min_length=1, max_length=100)
+    server_group: Optional[str] = Field(None, max_length=100)
+    tags: Optional[str] = Field(None, max_length=500)
 
 
 def next_numeric_id(db: Session, column) -> int:
@@ -161,9 +163,20 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
 # ──────────────────────── Servers ────────────────────────
 
 @router.get("/servers")
-def get_servers(db: Session = Depends(get_db)):
-    """서버 목록 + 종합 상태"""
-    servers = db.execute(select(Server).where(Server.use_yn == 'Y')).scalars().all()
+def get_servers(
+    server_group: Optional[str] = None,
+    tags: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """서버 목록 + 종합 상태 (그룹/태그 필터링 지원)"""
+    stmt = select(Server).where(Server.use_yn == 'Y')
+    if server_group:
+        stmt = stmt.where(Server.server_group == server_group)
+    if tags:
+        # Simple LIKE filter for comma-separated tags (dev-safe adapter)
+        stmt = stmt.where(Server.tags.like(f"%{tags}%"))
+
+    servers = db.execute(stmt).scalars().all()
     result = []
     for s in servers:
         status = db.execute(
@@ -176,6 +189,8 @@ def get_servers(db: Session = Depends(get_db)):
             "host_name": s.host_name,
             "mgmt_ip": s.mgmt_ip,
             "os_type_code": s.os_type_code,
+            "server_group": s.server_group,
+            "tags": s.tags,
             "composite_status": status.composite_status if status else "UNKNOWN",
         })
     return {"success": True, "data": result}
@@ -226,6 +241,8 @@ def get_server_detail(server_id: int, db: Session = Depends(get_db)):
             "os_type_code": server.os_type_code,
             "os_name": server.os_name,
             "os_version": server.os_version,
+            "server_group": server.server_group,
+            "tags": server.tags,
             "agent_id": agent.agent_id if agent else None,
             "agent_status": agent_status.agent_status if agent_status else "UNKNOWN",
             "last_heartbeat_at": agent_status.last_heartbeat_at.isoformat() if agent_status and agent_status.last_heartbeat_at else None,
@@ -251,11 +268,23 @@ def update_server(
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
 
-    before_data = {"server_name": server.server_name}
+    before_data = {
+        "server_name": server.server_name,
+        "server_group": server.server_group,
+        "tags": server.tags
+    }
     server.server_name = req.server_name.strip()
+    if "server_group" in provided_fields(req):
+        server.server_group = req.server_group
+    if "tags" in provided_fields(req):
+        server.tags = req.tags
     server.updated_at = datetime.now(timezone.utc)
     server.updated_by = current_user.login_id
-    after_data = {"server_name": server.server_name}
+    after_data = {
+        "server_name": server.server_name,
+        "server_group": server.server_group,
+        "tags": server.tags
+    }
 
     log_audit(
         db=db,
@@ -279,6 +308,8 @@ def update_server(
             "host_name": server.host_name,
             "mgmt_ip": server.mgmt_ip,
             "os_type_code": server.os_type_code,
+            "server_group": server.server_group,
+            "tags": server.tags
         },
     }
 
@@ -647,6 +678,9 @@ def update_incident(
             inc.resolved_at = now
         if req.status_code == "CLOSED" and not inc.closed_at:
             inc.closed_at = now
+        if req.status_code == "OPEN":
+            inc.resolved_at = None
+            inc.closed_at = None
     if req.impact_code is not None:
         inc.impact_code = req.impact_code
     if req.cause_code is not None:
@@ -675,6 +709,9 @@ def add_incident_action(
             inc.resolved_at = now
         if req.status_code == "CLOSED" and not inc.closed_at:
             inc.closed_at = now
+        if req.status_code == "OPEN":
+            inc.resolved_at = None
+            inc.closed_at = None
     if req.cause_code:
         inc.cause_code = req.cause_code
     if req.assigned_to is not None:

@@ -492,10 +492,8 @@ def receive_metrics(
         logger.warning("Deduplication failed: %s, continuing with all items", str(e))
 
     try:
-        next_result_id = None
         if any(item.metric_code in CHECK_RESULT_METRICS for item in req.items):
             ensure_check_result_hist_table(db)
-            next_result_id = next_check_result_id(db)
 
         replace_codes = {item.metric_code for item in req.items if item.metric_code in REPLACE_SET_METRICS}
         for metric_code in replace_codes:
@@ -547,12 +545,7 @@ def receive_metrics(
                 db.add(new_curr)
 
             # 2) mon_metric_hist INSERT
-            # For SQLite testing, generate an ID if not using sequences
-            hist_id_query = db.execute(select(func.max(MetricHistory.metric_hist_id))).scalar()
-            next_hist_id = (hist_id_query or 0) + 1
-
             hist = MetricHistory(
-                metric_hist_id=next_hist_id,
                 server_id=agent.server_id,
                 agent_id=agent.agent_id,
                 metric_code=item.metric_code,
@@ -576,7 +569,6 @@ def receive_metrics(
 
             if item.metric_code in CHECK_RESULT_METRICS:
                 db.add(CheckResultHistory(
-                    check_result_id=next_result_id,
                     server_id=agent.server_id,
                     agent_id=agent.agent_id,
                     target_type_code=CHECK_RESULT_METRICS[item.metric_code],
@@ -588,7 +580,6 @@ def receive_metrics(
                     collected_at=item.collected_at,
                     received_at=now,
                 ))
-                next_result_id += 1
             received_count += 1
 
         db.add(MetricReceiptLedger(

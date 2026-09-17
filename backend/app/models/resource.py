@@ -38,9 +38,7 @@ class MetricHistory(Base):
     """mon_metric_hist - 메트릭 이력 데이터"""
     __tablename__ = "mon_metric_hist"
 
-    # DB에서 metric_hist_id는 nullable이며 PK가 아님.
-    # SQLAlchemy는 PK 필수이므로 __mapper_args__로 처리
-    metric_hist_id = Column(Integer)
+    metric_hist_id = Column(Integer, primary_key=True, autoincrement=True)
     server_id = Column(Integer, nullable=False)          # FK 제약조건 DB에 없음
     agent_id = Column(Integer)
     metric_code = Column(String(60), nullable=False)
@@ -53,10 +51,6 @@ class MetricHistory(Base):
     collected_at = Column(TIMESTAMP, nullable=False)
     received_at = Column(TIMESTAMP, nullable=False)
     batch_uid = Column(String(40))
-
-    __mapper_args__ = {
-        "primary_key": [metric_hist_id]
-    }
 
 
 class MetricReceiptLedger(Base):
