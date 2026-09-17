@@ -11,10 +11,7 @@ def get_client_ip(request: Request) -> str:
     return "unknown"
 
 def log_audit(db: Session, user_id: int, action_type: str, target_entity: str, target_id: str, before_data: dict, after_data: dict, ip_address: str):
-    log_id_query = db.execute(select(func.max(SysAuditLog.log_id))).scalar()
-    log_id = (log_id_query or 0) + 1
     audit_log = SysAuditLog(
-        log_id=log_id,
         user_id=user_id,
         action_type=action_type,
         target_entity=target_entity,
@@ -25,4 +22,3 @@ def log_audit(db: Session, user_id: int, action_type: str, target_entity: str, t
         created_at=datetime.now(timezone.utc)
     )
     db.add(audit_log)
-    db.commit()

@@ -110,7 +110,7 @@ class SystemResourceCollector(BaseCollector):
 
                 metrics.append(self._make_metric("DISK_USAGE_PCT", disk.percent, collected_at, "path", mount))
                 metrics.append(self._make_metric("DISK_AVAILABLE_BYTES", float(disk.free), collected_at, "path", mount))
-                
+
             io_counters = psutil.disk_io_counters(perdisk=True)
             if io_counters:
                 for disk_name, io in io_counters.items():

@@ -21,10 +21,10 @@ class SpoolerTests(unittest.TestCase):
         ids, batch = self.spooler.pop_batch(10)
         self.assertEqual(len(batch), 2)
         self.assertEqual(len(ids), 2)
-        
+
         # Should not be deleted yet
         self.assertEqual(self.spooler.get_count(), 2)
-        
+
         # Ack batch
         self.spooler.ack_batch(ids)
         self.assertEqual(self.spooler.get_count(), 0)

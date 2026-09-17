@@ -241,8 +241,8 @@ from app.models.system import SysUser
 
 @router.put("/servers/{server_id}", dependencies=[Depends(require_roles(["ADMIN", "OPERATOR"]))])
 def update_server(
-    server_id: int, 
-    req: ServerUpdateRequest, 
+    server_id: int,
+    req: ServerUpdateRequest,
     request: Request,
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(get_current_user)
@@ -256,8 +256,7 @@ def update_server(
     server.updated_at = datetime.now(timezone.utc)
     server.updated_by = current_user.login_id
     after_data = {"server_name": server.server_name}
-    db.commit()
-    
+
     log_audit(
         db=db,
         user_id=current_user.user_id,
@@ -268,6 +267,8 @@ def update_server(
         after_data=after_data,
         ip_address=get_client_ip(request)
     )
+
+    db.commit()
 
     return {
         "success": True,
@@ -382,6 +383,63 @@ def get_server_check_history(
             }
             for row in rows
         ],
+    }
+
+@router.get("/servers/{server_id}/metrics/{metric_code}/history")
+def get_server_metric_history(
+    server_id: int,
+    metric_code: str,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+    dimension_key: str = "-",
+    dimension_value: str = "-",
+    limit: int = 1000,
+    db: Session = Depends(get_db)
+):
+    from app.models.resource import MetricHistory
+
+    # Range limit
+    if not end_time:
+        end_time = datetime.now(timezone.utc)
+    if not start_time:
+        from datetime import timedelta
+        start_time = end_time - timedelta(days=7)
+
+    if (end_time - start_time).days > 30:
+        raise HTTPException(status_code=400, detail="Range cannot exceed 30 days")
+
+    limit = max(1, min(limit, 5000))
+
+    stmt = (
+        select(MetricHistory)
+        .where(
+            MetricHistory.server_id == server_id,
+            MetricHistory.metric_code == metric_code,
+            MetricHistory.dimension_key == dimension_key,
+            MetricHistory.dimension_value == dimension_value,
+            MetricHistory.collected_at >= start_time,
+            MetricHistory.collected_at <= end_time
+        )
+        .order_by(MetricHistory.collected_at.asc())
+        .limit(limit)
+    )
+
+    try:
+        rows = db.execute(stmt).scalars().all()
+    except Exception as e:
+        # If partition issues or table doesn't exist during dev
+        db.rollback()
+        rows = []
+
+    return {
+        "success": True,
+        "data": [
+            {
+                "metric_value": row.metric_value,
+                "collected_at": row.collected_at.isoformat() if row.collected_at else None
+            }
+            for row in rows
+        ]
     }
 
 # ──────────────────────── Agents ────────────────────────
