@@ -35,8 +35,12 @@ frontend/dist/
 # Logs and temporary files
 *.log
 logs/
+reports/
 tmp/
 temp/
+
+# Approval-gated local work harness
+.harness/
 
 # OS / editor
 .DS_Store

@@ -1,0 +1,9 @@
+name: monitor_backend
+channels:
+  - defaults
+dependencies:
+  - python=3.12.2
+  - pip
+  - pytest=9.1.1
+  - pip:
+      - -r requirements.txt
