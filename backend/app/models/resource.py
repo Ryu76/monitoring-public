@@ -57,3 +57,14 @@ class MetricHistory(Base):
     __mapper_args__ = {
         "primary_key": [metric_hist_id]
     }
+
+
+class MetricReceiptLedger(Base):
+    """mon_metric_receipt_ledger - 배치 수신 멱등성 검증 원장"""
+    __tablename__ = "mon_metric_receipt_ledger"
+
+    batch_uid = Column(String(40), primary_key=True)
+    agent_id = Column(Integer, nullable=False)
+    received_at = Column(TIMESTAMP, nullable=False)
+    item_count = Column(Integer, nullable=False)
+

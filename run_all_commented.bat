@@ -2,11 +2,16 @@
 chcp 65001 > nul
 
 :: 1. 백엔드(FastAPI) 서버를 새 명령 프롬프트 창에서 실행합니다.
-:: 메인 앱 기동 시 lifespan 이벤트를 통해 비동기 워커와 스케줄러가 자동으로 함께 실행됩니다.
+:: 1. 백엔드 API 서버 시작
+:: uvicorn을 사용하여 FastAPI 애플리케이션을 실행합니다.
 start "NexusMon Backend" cmd /c "cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
 
-:: 2. 프론트엔드(Vue 3) 개발 서버를 새 명령 프롬프트 창에서 실행합니다.
-:: 실행 완료 후 브라우저에서 http://localhost:5173 으로 접속 가능합니다.
+:: 1-1. 백엔드 백그라운드 워커 시작
+:: 스케줄러와 알람 워커 등을 별도 프로세스로 실행합니다.
+start "NexusMon Worker" cmd /c "cd backend && python -m app.worker_main"
+
+:: 2. 프론트엔드 개발 서버 시작
+:: Vite를 사용하여 Vue.js 애플리케이션을 실행합니다.
 start "NexusMon Frontend" cmd /c "cd frontend && npm run dev"
 
 :: 3. 에이전트 수집 데몬을 새 명령 프롬프트 창에서 실행합니다.

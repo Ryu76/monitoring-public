@@ -5,7 +5,7 @@ from sqlalchemy import select, func, and_, delete, text
 from typing import List, Optional
 from datetime import datetime, timezone
 
-from app.api.dependencies import get_db
+from app.api.dependencies import get_db, get_current_user, require_roles
 from app.models.server import Server, ServerStatusCurr
 from app.models.agent import Agent, AgentStatusCurr
 from app.models.event import Event, Incident, IncidentAction
@@ -13,7 +13,7 @@ from app.models.resource import MetricCurrent
 from app.models.process import CheckTarget, CheckResultHistory
 from app.domain.check_targets import normalize_names, normalize_ports, check_targets_to_dict
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 class IncidentCreateFromEventRequest(BaseModel):
@@ -235,16 +235,40 @@ def get_server_detail(server_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.put("/servers/{server_id}")
-def update_server(server_id: int, req: ServerUpdateRequest, db: Session = Depends(get_db)):
+from fastapi import Request
+from app.core.audit import log_audit, get_client_ip
+from app.models.system import SysUser
+
+@router.put("/servers/{server_id}", dependencies=[Depends(require_roles(["ADMIN", "OPERATOR"]))])
+def update_server(
+    server_id: int, 
+    req: ServerUpdateRequest, 
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: SysUser = Depends(get_current_user)
+):
     server = db.execute(select(Server).where(Server.server_id == server_id)).scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
 
+    before_data = {"server_name": server.server_name}
     server.server_name = req.server_name.strip()
     server.updated_at = datetime.now(timezone.utc)
-    server.updated_by = "WEB"
+    server.updated_by = current_user.login_id
+    after_data = {"server_name": server.server_name}
     db.commit()
+    
+    log_audit(
+        db=db,
+        user_id=current_user.user_id,
+        action_type="UPDATE",
+        target_entity="Server",
+        target_id=str(server.server_id),
+        before_data=before_data,
+        after_data=after_data,
+        ip_address=get_client_ip(request)
+    )
+
     return {
         "success": True,
         "data": {
@@ -273,7 +297,7 @@ def get_server_check_targets(server_id: int, db: Session = Depends(get_db)):
     return {"success": True, "data": check_targets_to_dict(items)}
 
 
-@router.put("/servers/{server_id}/check-targets")
+@router.put("/servers/{server_id}/check-targets", dependencies=[Depends(require_roles(["ADMIN", "OPERATOR"]))])
 def update_server_check_targets(
     server_id: int,
     req: ServerCheckTargetsRequest,
@@ -387,7 +411,7 @@ def get_agents(db: Session = Depends(get_db)):
         })
     return {"success": True, "data": result}
 
-@router.put("/agents/{agent_id}/approve")
+@router.put("/agents/{agent_id}/approve", dependencies=[Depends(require_roles(["ADMIN"]))])
 def approve_agent(agent_id: int, db: Session = Depends(get_db)):
     """에이전트 승인"""
     agent = db.execute(select(Agent).where(Agent.agent_id == agent_id)).scalar_one_or_none()
@@ -398,7 +422,7 @@ def approve_agent(agent_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"success": True, "message": f"Agent {agent_id} approved"}
 
-@router.put("/agents/{agent_id}/revoke")
+@router.put("/agents/{agent_id}/revoke", dependencies=[Depends(require_roles(["ADMIN"]))])
 def revoke_agent(agent_id: int, db: Session = Depends(get_db)):
     """에이전트 차단"""
     agent = db.execute(select(Agent).where(Agent.agent_id == agent_id)).scalar_one_or_none()
@@ -438,7 +462,7 @@ def get_events(status: Optional[str] = None, db: Session = Depends(get_db)):
         })
     return {"success": True, "data": result}
 
-@router.put("/events/{event_uid}/ack")
+@router.put("/events/{event_uid}/ack", dependencies=[Depends(require_roles(["ADMIN", "OPERATOR"]))])
 def ack_event(event_uid: str, db: Session = Depends(get_db)):
     """이벤트 확인(Acknowledge) 처리"""
     evt = db.execute(select(Event).where(Event.event_uid == event_uid)).scalar_one_or_none()
@@ -449,7 +473,7 @@ def ack_event(event_uid: str, db: Session = Depends(get_db)):
     return {"success": True, "message": f"Event {event_uid} acknowledged"}
 
 
-@router.post("/events/{event_uid}/incident")
+@router.post("/events/{event_uid}/incident", dependencies=[Depends(require_roles(["ADMIN", "OPERATOR"]))])
 def create_incident_from_event(
     event_uid: str,
     req: IncidentCreateFromEventRequest,
@@ -546,7 +570,7 @@ def get_incident_detail(incident_id: int, db: Session = Depends(get_db)):
     return {"success": True, "data": data}
 
 
-@router.put("/incidents/{incident_id}")
+@router.put("/incidents/{incident_id}", dependencies=[Depends(require_roles(["ADMIN", "OPERATOR"]))])
 def update_incident(
     incident_id: int,
     req: IncidentUpdateRequest,
@@ -576,7 +600,7 @@ def update_incident(
     return {"success": True, "data": incident_to_dict(inc)}
 
 
-@router.post("/incidents/{incident_id}/actions")
+@router.post("/incidents/{incident_id}/actions", dependencies=[Depends(require_roles(["ADMIN", "OPERATOR"]))])
 def add_incident_action(
     incident_id: int,
     req: IncidentActionCreateRequest,

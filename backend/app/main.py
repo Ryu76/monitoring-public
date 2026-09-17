@@ -16,18 +16,14 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(na
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """앱 기동 시 백그라운드 스케줄러를 자동 시작합니다."""
+    """앱 기동 시 API 전용 초기화를 수행합니다."""
     try:
         ensure_operational_tables(engine)
     except Exception as exc:
         logging.getLogger(__name__).warning("DB initialization skipped: %s", exc)
-    start_worker()
-    start_scheduler()
-    start_alert_worker()
-    start_aggregator()
-    logging.getLogger(__name__).info("All background workers started.")
+    logging.getLogger(__name__).info("API started. (Workers are separated)")
     yield
-    logging.getLogger(__name__).info("Shutting down background workers.")
+    logging.getLogger(__name__).info("API shutting down.")
 
 app = FastAPI(
     title="통합 서버 모니터링 관제 시스템 API",

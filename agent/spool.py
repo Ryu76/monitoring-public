@@ -38,30 +38,33 @@ class MetricSpooler:
                 cursor.execute('INSERT INTO metrics_spool (payload) VALUES (?)', (payload,))
             conn.commit()
             
-    def pop_batch(self, batch_size: int = 100) -> List[Dict[str, Any]]:
-        """스풀에서 최대 batch_size 만큼 지표를 꺼내옴 (읽은 후 자동 삭제)"""
+    def pop_batch(self, batch_size: int = 100) -> tuple[List[int], List[Dict[str, Any]]]:
+        """스풀에서 최대 batch_size 만큼 지표를 꺼내옴"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT id, payload FROM metrics_spool ORDER BY id ASC LIMIT ?', (batch_size,))
             rows = cursor.fetchall()
             
             results = []
-            ids_to_delete = []
+            ids = []
             for row in rows:
                 try:
                     payload = json.loads(row[1])
-                    # payload 내에 _spool_id 등을 넣고 싶지 않으므로 순수 페이로드만 결과에 담음
                     results.append(payload)
-                    ids_to_delete.append(row[0])
+                    ids.append(row[0])
                 except json.JSONDecodeError:
-                    ids_to_delete.append(row[0])
+                    ids.append(row[0])
                     
-            if ids_to_delete:
-                placeholders = ','.join('?' for _ in ids_to_delete)
-                cursor.execute(f'DELETE FROM metrics_spool WHERE id IN ({placeholders})', ids_to_delete)
-                conn.commit()
-                
-            return results
+            return ids, results
+
+    def ack_batch(self, ids: List[int]):
+        if not ids:
+            return
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            placeholders = ','.join('?' for _ in ids)
+            cursor.execute(f'DELETE FROM metrics_spool WHERE id IN ({placeholders})', ids)
+            conn.commit()
 
     def get_count(self) -> int:
         """현재 스풀에 쌓인 지표 수 반환"""

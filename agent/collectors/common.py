@@ -18,12 +18,37 @@ class SystemResourceCollector(BaseCollector):
         now_str = datetime.now(timezone.utc).isoformat()
         metrics: List[Dict[str, Any]] = []
 
+        # Total CPU
         cpu_usage = psutil.cpu_percent(interval=None)
         metrics.append(self._make_metric("CPU_USAGE_PCT", cpu_usage, now_str))
 
+        # CPU Core
+        per_cpu = psutil.cpu_percent(interval=None, percpu=True)
+        for i, core_usage in enumerate(per_cpu):
+            metrics.append(self._make_metric("CPU_CORE_PCT", core_usage, now_str, "core", str(i)))
+
+        # Load average (not on Windows)
+        if hasattr(psutil, "getloadavg"):
+            try:
+                load1, load5, load15 = psutil.getloadavg()
+                metrics.append(self._make_metric("CPU_LOAD_1M", load1, now_str))
+                metrics.append(self._make_metric("CPU_LOAD_5M", load5, now_str))
+                metrics.append(self._make_metric("CPU_LOAD_15M", load15, now_str))
+            except Exception:
+                pass
+
+        # Memory
         mem = psutil.virtual_memory()
         metrics.append(self._make_metric("MEM_USAGE_PCT", mem.percent, now_str))
         metrics.append(self._make_metric("MEM_AVAILABLE_BYTES", float(mem.available), now_str))
+
+        # Swap
+        try:
+            swap = psutil.swap_memory()
+            metrics.append(self._make_metric("SWAP_USAGE_PCT", swap.percent, now_str))
+            metrics.append(self._make_metric("SWAP_AVAILABLE_BYTES", float(swap.free), now_str))
+        except Exception:
+            pass
 
         metrics.extend(self._collect_disks(now_str))
         metrics.extend(self._collect_network(now_str))
@@ -85,20 +110,35 @@ class SystemResourceCollector(BaseCollector):
 
                 metrics.append(self._make_metric("DISK_USAGE_PCT", disk.percent, collected_at, "path", mount))
                 metrics.append(self._make_metric("DISK_AVAILABLE_BYTES", float(disk.free), collected_at, "path", mount))
+                
+            io_counters = psutil.disk_io_counters(perdisk=True)
+            if io_counters:
+                for disk_name, io in io_counters.items():
+                    metrics.append(self._make_metric("DISK_IO_READ_BYTES", float(io.read_bytes), collected_at, "disk", disk_name))
+                    metrics.append(self._make_metric("DISK_IO_WRITE_BYTES", float(io.write_bytes), collected_at, "disk", disk_name))
+                    metrics.append(self._make_metric("DISK_IO_READ_TIME", float(io.read_time), collected_at, "disk", disk_name))
+                    metrics.append(self._make_metric("DISK_IO_WRITE_TIME", float(io.write_time), collected_at, "disk", disk_name))
         except Exception:
             pass
 
         return metrics
 
     def _collect_network(self, collected_at: str) -> List[Dict[str, Any]]:
+        metrics: List[Dict[str, Any]] = []
         try:
+            # Total
             net = psutil.net_io_counters()
-            return [
-                self._make_metric("NET_BYTES_SENT", float(net.bytes_sent), collected_at),
-                self._make_metric("NET_BYTES_RECV", float(net.bytes_recv), collected_at),
-            ]
+            metrics.append(self._make_metric("NET_BYTES_SENT", float(net.bytes_sent), collected_at))
+            metrics.append(self._make_metric("NET_BYTES_RECV", float(net.bytes_recv), collected_at))
+
+            # Per interface
+            net_if = psutil.net_io_counters(pernic=True)
+            for nic, io in net_if.items():
+                metrics.append(self._make_metric("NET_BYTES_SENT_RATE", float(io.bytes_sent), collected_at, "interface", nic))
+                metrics.append(self._make_metric("NET_BYTES_RECV_RATE", float(io.bytes_recv), collected_at, "interface", nic))
         except Exception:
-            return []
+            pass
+        return metrics
 
     def _collect_top_processes(self, collected_at: str) -> List[Dict[str, Any]]:
         metrics: List[Dict[str, Any]] = []

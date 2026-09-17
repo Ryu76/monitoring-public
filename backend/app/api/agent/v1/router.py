@@ -11,7 +11,7 @@ from sqlalchemy import select, func, delete, text
 from app.api.dependencies import get_db, verify_agent
 from app.models.server import Server, ServerStatusCurr
 from app.models.agent import Agent, AgentHeartbeatHist, AgentStatusCurr
-from app.models.resource import MetricCurrent, MetricHistory, MetricDef
+from app.models.resource import MetricCurrent, MetricHistory, MetricDef, MetricReceiptLedger
 from app.models.process import CheckTarget, CheckResultHistory
 from app.schemas.agent import (
     AgentEnrollRequest, AgentEnrollResponse,
@@ -25,12 +25,24 @@ router = APIRouter()
 
 METRIC_DEFINITIONS = {
     "CPU_USAGE_PCT": ("CPU Usage (%)", "CPU", "FLOAT", "PERCENT", "AVG"),
+    "CPU_CORE_PCT": ("CPU Core Usage (%)", "CPU", "FLOAT", "PERCENT", "AVG"),
+    "CPU_LOAD_1M": ("CPU Load 1M", "CPU", "FLOAT", "COUNT", "AVG"),
+    "CPU_LOAD_5M": ("CPU Load 5M", "CPU", "FLOAT", "COUNT", "AVG"),
+    "CPU_LOAD_15M": ("CPU Load 15M", "CPU", "FLOAT", "COUNT", "AVG"),
     "MEM_USAGE_PCT": ("Memory Usage (%)", "MEMORY", "FLOAT", "PERCENT", "AVG"),
     "MEM_AVAILABLE_BYTES": ("Memory Available (Bytes)", "MEMORY", "BIGINT", "BYTES", "AVG"),
+    "SWAP_USAGE_PCT": ("Swap Usage (%)", "MEMORY", "FLOAT", "PERCENT", "AVG"),
+    "SWAP_AVAILABLE_BYTES": ("Swap Available (Bytes)", "MEMORY", "BIGINT", "BYTES", "AVG"),
     "DISK_USAGE_PCT": ("Disk Usage (%)", "DISK", "FLOAT", "PERCENT", "AVG"),
     "DISK_AVAILABLE_BYTES": ("Disk Available (Bytes)", "DISK", "BIGINT", "BYTES", "AVG"),
+    "DISK_IO_READ_BYTES": ("Disk IO Read Bytes", "DISK", "BIGINT", "BYTES", "SUM"),
+    "DISK_IO_WRITE_BYTES": ("Disk IO Write Bytes", "DISK", "BIGINT", "BYTES", "SUM"),
+    "DISK_IO_READ_TIME": ("Disk IO Read Time", "DISK", "FLOAT", "MILLISECONDS", "SUM"),
+    "DISK_IO_WRITE_TIME": ("Disk IO Write Time", "DISK", "FLOAT", "MILLISECONDS", "SUM"),
     "NET_BYTES_SENT": ("Network Bytes Sent", "NETWORK", "BIGINT", "BYTES", "SUM"),
     "NET_BYTES_RECV": ("Network Bytes Received", "NETWORK", "BIGINT", "BYTES", "SUM"),
+    "NET_BYTES_SENT_RATE": ("Network Bytes Sent Rate", "NETWORK", "BIGINT", "BYTES", "SUM"),
+    "NET_BYTES_RECV_RATE": ("Network Bytes Received Rate", "NETWORK", "BIGINT", "BYTES", "SUM"),
     "PROCESS_CPU_PCT": ("Top Process CPU Usage (%)", "PROCESS", "FLOAT", "PERCENT", "AVG"),
     "PROCESS_MEM_PCT": ("Top Process Memory Usage (%)", "PROCESS", "FLOAT", "PERCENT", "AVG"),
     "PROCESS_STATUS": ("Process Running Status", "PROCESS", "FLOAT", "BOOLEAN", "LAST"),
@@ -434,6 +446,32 @@ def receive_metrics(
     now = datetime.now(timezone.utc)
     received_count = 0
     
+    try:
+        db.execute(text("SELECT 1 FROM mon_metric_receipt_ledger WHERE 1 = 0"))
+    except Exception:
+        db.rollback()
+        db.execute(text("""
+            CREATE TABLE mon_metric_receipt_ledger (
+                batch_uid VARCHAR2(40) NOT NULL PRIMARY KEY,
+                agent_id NUMBER NOT NULL,
+                received_at TIMESTAMP NOT NULL,
+                item_count NUMBER NOT NULL
+            )
+        """))
+        db.commit()
+
+    existing_ledger = db.execute(
+        select(MetricReceiptLedger).where(MetricReceiptLedger.batch_uid == req.batch_uid)
+    ).scalar_one_or_none()
+    
+    if existing_ledger:
+        return MetricBulkResponse(
+            success=True,
+            code="OK",
+            message=f"배치({req.batch_uid})가 이미 처리되었습니다.",
+            received_count=existing_ledger.item_count,
+        )
+
     # 배치 내 중복 제거 (같은 collected_at 시점의 메트릭은 하나만 유지)
     try:
         seen = {}
@@ -485,11 +523,15 @@ def receive_metrics(
             ).scalar_one_or_none()
 
             if existing:
-                existing.metric_value = item.metric_value
-                existing.string_value = item.string_value
-                existing.status_code = item.status_code
-                existing.collected_at = item.collected_at
-                existing.received_at = now
+                if item.collected_at >= existing.collected_at:
+                    existing.metric_value = item.metric_value
+                    existing.string_value = item.string_value
+                    existing.status_code = item.status_code
+                    existing.collected_at = item.collected_at
+                    existing.received_at = now
+                else:
+                    # ING-002: 과거 metric이 current 역전 안 함
+                    pass
             else:
                 new_curr = MetricCurrent(
                     server_id=agent.server_id,
@@ -539,6 +581,13 @@ def receive_metrics(
                 ))
                 next_result_id += 1
             received_count += 1
+
+        db.add(MetricReceiptLedger(
+            batch_uid=req.batch_uid,
+            agent_id=agent.agent_id,
+            received_at=now,
+            item_count=received_count
+        ))
 
         # Agent 마지막 접속 시각 갱신
         agent.last_connected_at = now

@@ -98,3 +98,31 @@ async def get_current_user(
         raise HTTPException(status_code=403, detail="Inactive user")
     return user
 
+
+def require_roles(allowed_roles: list[str]):
+    """
+    특정 롤을 가진 사용자만 접근할 수 있도록 검증합니다.
+    """
+    async def role_checker(
+        current_user: SysUser = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ) -> SysUser:
+        from app.models.system import SysRole, SysUserRole
+        user_roles = db.execute(
+            select(SysRole.role_code)
+            .join(SysUserRole, SysRole.role_id == SysUserRole.role_id)
+            .where(SysUserRole.user_id == current_user.user_id)
+        ).scalars().all()
+        
+        if "SUPER_ADMIN" in user_roles:
+            return current_user
+            
+        for role in allowed_roles:
+            if role in user_roles:
+                return current_user
+                
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="권한이 없습니다."
+        )
+    return role_checker
