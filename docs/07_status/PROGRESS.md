@@ -34,3 +34,23 @@
 - **알림 채널 연동(Credential)**: ALT-001의 외부 서비스(Slack Webhook, SMTP 이메일) 발송을 위한 프로덕션 Credential 주입 및 발송망 방화벽 허용.
 - **Frontend E2E 테스트**: Playwright 또는 Cypress 등 브라우저 자동화 도구를 통한 전체 대시보드 및 상세 페이지의 사용자 시나리오(E2E) QA 진행.
 - **보안 및 규정 컴플라이언스 점검**: 실 운영 전 보안 취약점 진단 및 감사 로그 적재 주기 검토.
+
+## 2026-09-17 5차 구현 (P3 확장 관제·운영 플랫폼)
+
+### 실제 실행 명령 및 QA 결과
+- `pytest backend\tests\test_p3_extension.py -q`
+  - Pass/Fail Count: 5 passed
+  - 내용: URL/SSL, Remote Command, Config Versioning, HA Cluster에 대한 mock API 및 unit/negative 테스트 통과 완료
+
+### PRD ID별 상태 (P3)
+
+| ID | Status | Note |
+|---|---|---|
+| **P3-EXT** (URL/SSL, DB, Batch Collector) | `implemented` | Adapter/Mock 설계 반영, Unit/Negative test 확인 (실제 인프라 연결 차단) |
+| **P3-CMD** (Remote Command Approval) | `implemented` | Allowlist, 결재 상태, Audit Event 검증 (실제 Subprocess/SSH 차단) |
+| **P3-CFG** (Config Versioning) | `implemented` | Rollback Metadata, Report/Retention Mock 검증 (실제 배포 차단) |
+| **P3-HA** (HA/Failover) | `implemented` | Leader/Follower Simulation API 모델 검증 (실제 클러스터 차단) |
+
+### 외부 인프라 차단 조건
+- 실제 운영 인프라 통신 및 Credential 탈취 방지를 위해 외부 접속/명령 실행은 전면 차단됨.
+- 모의 데이터 통과 목적으로만 구현됨.

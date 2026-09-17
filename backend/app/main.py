@@ -50,3 +50,5 @@ async def health_check():
 app.include_router(agent_router, prefix="/agent/v1", tags=["Agent API"])
 app.include_router(web_router, prefix="/api/v1", tags=["Web API"])
 app.include_router(admin_router, prefix="/api/v1/admin", tags=["Admin API"])
+from app.api.web.v1.extension import router as extension_router
+app.include_router(extension_router, prefix="/api/v1/p3", tags=["P3 Extension API"])
