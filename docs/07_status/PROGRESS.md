@@ -38,19 +38,26 @@
 ## 2026-09-17 5차 구현 (P3 확장 관제·운영 플랫폼)
 
 ### 실제 실행 명령 및 QA 결과
-- `pytest backend\tests\test_p3_extension.py -q`
-  - Pass/Fail Count: 5 passed
-  - 내용: URL/SSL, Remote Command, Config Versioning, HA Cluster에 대한 mock API 및 unit/negative 테스트 통과 완료
+- `pytest backend/tests/test_p3_extension.py -q`
+  - Pass/Fail Count: 8 passed (added 3 negative tests)
+  - 내용: URL/SSL, Remote Command, Config Versioning, HA Cluster에 대한 mock API 및 negative 테스트 통과 확인
+- `MockExternalHealthCollector` 추가
+  - Agent 측에서 실제 외부 인프라 연동 없이 mock 데이터(정상/실패 등)를 반환하도록 안전한 health inspection collector 구현
+- `pytest backend/tests/ -q` (전체 테스트)
+  - Pass/Fail Count: 26 passed
+  - P0~P3 모든 백엔드 기능 정상 작동 확인
+- `npm run build` (frontend 디렉토리)
+  - 성공적으로 Vite 빌드 완료
 
 ### PRD ID별 상태 (P3)
 
 | ID | Status | Note |
 |---|---|---|
-| **P3-EXT** (URL/SSL, DB, Batch Collector) | `implemented` | Adapter/Mock 설계 반영, Unit/Negative test 확인 (실제 인프라 연결 차단) |
+| **P3-EXT** (URL/SSL, DB, Batch Collector) | `implemented` | MockExternalHealthCollector 구현 및 Agent 등록, Unit/Negative test 확인 (실제 인프라 연결 차단) |
 | **P3-CMD** (Remote Command Approval) | `implemented` | Allowlist, 결재 상태, Audit Event 검증 (실제 Subprocess/SSH 차단) |
 | **P3-CFG** (Config Versioning) | `implemented` | Rollback Metadata, Report/Retention Mock 검증 (실제 배포 차단) |
 | **P3-HA** (HA/Failover) | `implemented` | Leader/Follower Simulation API 모델 검증 (실제 클러스터 차단) |
 
 ### 외부 인프라 차단 조건
-- 실제 운영 인프라 통신 및 Credential 탈취 방지를 위해 외부 접속/명령 실행은 전면 차단됨.
+- 실제 운영 인프라 통신 및 Credential 유출 방지를 위해 외부 접속/명령 실행은 전면 차단됨
 - 모의 데이터 통과 목적으로만 구현됨.

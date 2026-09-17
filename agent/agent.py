@@ -18,12 +18,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import settings
 from spool import MetricSpooler
 from collectors.common import SystemResourceCollector
+from collectors.extension import MockExternalHealthCollector
 
 
 class MonitorAgent:
     def __init__(self):
         self.spooler = MetricSpooler(settings.SPOOL_DB_PATH)
-        self.collectors = [SystemResourceCollector()]
+        self.collectors = [SystemResourceCollector(), MockExternalHealthCollector()]
         self.agent_uid = None
         self.server_uid = None
         self.headers = {"Content-Type": "application/json"}

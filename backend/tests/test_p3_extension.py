@@ -143,3 +143,34 @@ def test_ha_cluster_state(auth_headers):
     nodes = response.json()
     assert len(nodes) > 0
     assert nodes[0]["role"] == "LEADER"
+
+def test_external_health_check_negative(auth_headers):
+    response = client.post(
+        "/api/v1/p3/health-checks",
+        json={
+            "target_type": "URL",
+            "status": "PASS"
+        },
+        headers=auth_headers
+    )
+    assert response.status_code == 422
+
+def test_config_versioning_negative(auth_headers):
+    response = client.post(
+        "/api/v1/p3/config-versions",
+        json={
+            "component_name": "nginx"
+        },
+        headers=auth_headers
+    )
+    assert response.status_code == 422
+
+def test_ha_cluster_state_negative(auth_headers):
+    response = client.post(
+        "/api/v1/p3/ha-cluster",
+        json={
+            "node_name": "node-1"
+        },
+        headers=auth_headers
+    )
+    assert response.status_code == 422
