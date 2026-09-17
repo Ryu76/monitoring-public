@@ -37,8 +37,6 @@ def override_get_current_user():
     from app.models.system import SysUser
     return SysUser(user_id=1, login_id="admin_test", user_name="Admin")
 
-app.dependency_overrides[get_db] = override_get_db
-app.dependency_overrides[get_current_user] = override_get_current_user
 client = TestClient(app)
 
 @pytest.fixture
@@ -105,3 +103,10 @@ def test_mon_003_history(db_session: Session):
     assert len(data) == 2
     assert data[0]["metric_value"] == 45.0
     assert data[1]["metric_value"] == 55.0
+
+@pytest.fixture(autouse=True)
+def setup_overrides():
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user
+    yield
+    app.dependency_overrides.clear()

@@ -33,7 +33,6 @@ def override_get_db():
     finally:
         db.close()
 
-app.dependency_overrides[get_db] = override_get_db
 client = TestClient(app)
 
 @pytest.fixture
@@ -152,3 +151,9 @@ def test_ing_002_monotonic_upsert(db_session, test_agent):
     ).first()
     assert curr is not None
     assert curr.metric_value == 80.0
+
+@pytest.fixture(autouse=True)
+def setup_overrides():
+    app.dependency_overrides[get_db] = override_get_db
+    yield
+    app.dependency_overrides.clear()

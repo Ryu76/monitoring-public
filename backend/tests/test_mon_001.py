@@ -41,8 +41,6 @@ def override_get_current_user():
         use_yn="Y"
     )
 
-app.dependency_overrides[get_db] = override_get_db
-app.dependency_overrides[get_current_user] = override_get_current_user
 client = TestClient(app)
 
 @pytest.fixture
@@ -167,3 +165,10 @@ def test_mon_001_check_history_and_current(db_session, test_server_agent):
     types = [h["target_type_code"] for h in history]
     assert "PROCESS" in types
     assert "PORT" in types
+
+@pytest.fixture(autouse=True)
+def setup_overrides():
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user
+    yield
+    app.dependency_overrides.clear()

@@ -39,8 +39,6 @@ def override_get_current_user():
         use_yn="Y"
     )
 
-app.dependency_overrides[get_db] = override_get_db
-app.dependency_overrides[get_current_user] = override_get_current_user
 client = TestClient(app)
 
 @pytest.fixture
@@ -100,3 +98,10 @@ def test_inc_001_incident_transitions(db_session, test_data):
     assert data["closed_at"] is None
     assert data["resolved_at"] is None
     assert len(data["actions"]) == 1
+
+@pytest.fixture(autouse=True)
+def setup_overrides():
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user
+    yield
+    app.dependency_overrides.clear()

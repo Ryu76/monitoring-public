@@ -1,3 +1,4 @@
+import pytest
 import os
 import sys
 import unittest
@@ -42,7 +43,6 @@ def override_get_db():
     finally:
         db.close()
 
-app.dependency_overrides[get_db] = override_get_db
 
 class SEC001Tests(unittest.TestCase):
     def setUp(self):
@@ -125,3 +125,9 @@ class SEC001Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+@pytest.fixture(autouse=True)
+def setup_overrides():
+    app.dependency_overrides[get_db] = override_get_db
+    yield
+    app.dependency_overrides.clear()
