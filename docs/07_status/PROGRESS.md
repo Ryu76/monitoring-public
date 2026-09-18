@@ -62,23 +62,26 @@
 - 실제 운영 인프라 통신 및 Credential 유출 방지를 위해 외부 접속/명령 실행은 전면 차단됨
 - 모의 데이터 통과 목적으로만 구현됨.
 
-## 2026-09-18 6차 구현 및 QA (PRD 100% 추적성 및 E2E Closure)
+## 2026-09-18 7차 QA 및 최종 Closure (안정성 및 보안 검증)
 
 ### 실제 실행 명령 및 QA 결과
-- `pytest backend/tests/test_agt_001.py backend/tests/test_cfg_001.py -v`
-  - Pass/Fail Count: All passed
-  - 내용: AGT-001 상태 기반 (PENDING/BLOCKED/REVOKED deny 및 APPROVED permit) API 접근 제어 회귀 테스트 성공. CFG-001 Host 환경 변수 우선순위, Missing secret fail-closed, DPAPI round-trip, Unsafe fallback 방지 테스트 성공.
-- `npx playwright test` (frontend 디렉토리)
-  - Pass/Fail Count: 1 passed (13.5s)
-  - 내용: Playwright 기반 브라우저 E2E 시나리오(Login, Dashboard, Server, Incidents mock API 통신) 테스트 성공.
-- `python preflight.py`
-  - 내용: Oracle DPAPI 연결 Preflight 실행 결과 `BLOCKED: Encrypted local config or DPAPI key does not exist. Setup Command needed: python backend/encrypt_env.py with Oracle credentials.` 확인.
+- `python -m pytest backend/tests/`
+  - Pass/Fail Count: 40 passed, 0 failed (13 warnings)
+  - 내용: 환경 변수 오염 및 리로드 이슈가 해결된 격리 상태에서 CFG-001, AGT-001, DPAPI, Preflight 등 백엔드 전 계층 단위 테스트 통과.
+- `python -m compileall backend/`
+  - 성공: 백엔드 전체 소스코드 문법 검증 및 바이트코드 컴파일 완료.
+- `cd frontend && npm run build`
+  - 성공: Vite 빌드 완료 (dist 생성).
+- `cd frontend && npx playwright test`
+  - Pass/Fail Count: 1 passed (9.3s)
+  - 내용: 백엔드 API 규격을 정확히 모킹하여 로그인, 대시보드 요약, 이벤트 경고, 서버 상세 및 점검 이력 뷰, 인시던트 조회까지 Playwright 브라우저 E2E 시나리오 검증 통과.
 
 ### PRD ID별 상태 업데이트
 
 | ID | Status | Note |
 |---|---|---|
-| **AGT-001** (Agent Auth/Deny) | `implemented` | Missing/PENDING/BLOCKED/REVOKED deny 및 APPROVED permit API 회귀 테스트 확인 |
-| **CFG-001** (Config Security) | `implemented` | 환경 우선순위, Fail-closed, DPAPI Round-trip, Safe fallback 확인 완료 |
-| **MON-004** (Dashboard & UI) | `implemented` | Playwright 기반 local Vite server + mocked API 브라우저 E2E 검증(PASS) 완료 |
-| **ING-004** (History partition) | `blocked` | Oracle DB 및 암호화 설정 부재로 Preflight 차단됨. `python backend/encrypt_env.py` 통한 Oracle credential 세팅 후 재시도 필요 |
+| **AGT-001** (Agent Auth/Deny) | `implemented` | Mock 의존성 없이 로컬 SQLite 격리 DB로 PENDING/BLOCKED/REVOKED 접근 제어 및 승인 로직 100% 테스트 통과 |
+| **CFG-001** (Config Security) | `implemented` | 환경 변수 우선순위 적용, 누락 시 Fail-Closed(ValidationError), DPAPI Round-trip 및 로드 테스트 통과 |
+| **MON-004** (Dashboard & UI) | `implemented` | Playwright 기반 local Vite server + mocked API를 통해 화면 컴포넌트 렌더링 및 E2E 라우팅 검증 완료 |
+| **ING-004** (History partition) | `blocked` | 로컬 환경에 프로덕션 Oracle DB가 없으므로 E2E 파티셔닝 증명 불가 (Mock 수준의 코드 검증만 수행됨) |
+| **ALT-001** (Alert Policy) | `partial` | DB 내 발송 대기/실패 상태 전이 및 로직은 검증되었으나, 실제 외부(슬랙/이메일) 프로덕션 발송은 불가하여 Mock 증명 |

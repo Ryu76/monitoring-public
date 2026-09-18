@@ -15,27 +15,52 @@ from app.models.agent import Agent
 from app.models.server import Server
 from app.core.database import Base
 
-engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base.metadata.create_all(bind=engine)
+import pytest
+import os
+import uuid
+from datetime import datetime, timezone
 
-def override_get_db():
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
-app.dependency_overrides[get_db] = override_get_db
-client = TestClient(app)
+from app.main import app
+from app.api.dependencies import get_db
+from app.models.agent import Agent
+from app.models.server import Server
+from app.core.database import Base
+
+@pytest.fixture(autouse=True)
+def isolated_db():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    yield TestingSessionLocal
+    app.dependency_overrides.clear()
+    Base.metadata.drop_all(bind=engine)
 
 @pytest.fixture
-def db_session():
-    db = TestingSessionLocal()
+def db_session(isolated_db):
+    db = isolated_db()
     try:
         yield db
     finally:
         db.close()
+
+@pytest.fixture
+def client(isolated_db):
+    return TestClient(app)
 
 def create_agent(db_session: Session, status_code: str):
     server_uid = str(uuid.uuid4())
@@ -60,51 +85,56 @@ def create_agent(db_session: Session, status_code: str):
     db_session.refresh(agent)
     return agent
 
-def test_agt_001_agent_status_permit_and_deny(db_session):
-    # Missing Agent UID header
-    resp_missing = client.post("/agent/v1/metrics/bulk", json={})
-    assert resp_missing.status_code == 422 # FastAPI validation for missing header or invalid body
-
-    # Or test properly missing header:
-    resp_missing_header = client.post("/agent/v1/metrics/bulk", json={
+def test_agt_001_agent_status_permit_and_deny(client, db_session):
+    # 1. Missing X-Agent-Uid header
+    resp_missing = client.post("/agent/v1/metrics/bulk", json={
         "batch_uid": str(uuid.uuid4()),
         "sequence": 1,
         "collected_at": datetime.now(timezone.utc).isoformat(),
         "items": []
     })
-    assert resp_missing_header.status_code in (401, 422)
-    assert "Missing X-Agent-Uid header" in resp_missing_header.json()["detail"] or resp_missing_header.status_code in (401, 403, 422)
+    assert resp_missing.status_code == 422
+    assert resp_missing.json()["detail"][0]["msg"] == "Field required"
 
-    # Deny statuses
-    deny_statuses = ["PENDING", "BLOCKED", "REVOKED", "NOT_EXIST"]
-    for status in deny_statuses:
-        if status == "NOT_EXIST":
-            agent_uid = str(uuid.uuid4())
-        else:
-            agent = create_agent(db_session, status)
-            agent_uid = agent.agent_uid
+    # 2. Unknown (NOT_EXIST) agent
+    unknown_agent_uid = str(uuid.uuid4())
+    resp_unknown = client.post("/agent/v1/metrics/bulk", json={
+        "batch_uid": str(uuid.uuid4()),
+        "sequence": 1,
+        "collected_at": datetime.now(timezone.utc).isoformat(),
+        "items": []
+    }, headers={"X-Agent-Uid": unknown_agent_uid})
+    assert resp_unknown.status_code == 401
+    assert resp_unknown.json()["detail"] == {
+        "success": False,
+        "code": "AGENT_NOT_FOUND",
+        "message": f"등록되지 않은 에이전트입니다. (uid={unknown_agent_uid})"
+    }
 
-        headers = {"X-Agent-Uid": agent_uid}
-        payload = {
+    # 3. Deny statuses
+    status_messages = {
+        "PENDING": "에이전트가 아직 관리자 승인을 받지 않았습니다.",
+        "BLOCKED": "에이전트가 차단되었습니다. 관리자에게 문의하세요.",
+        "REVOKED": "에이전트 인증이 폐기되었습니다.",
+    }
+    for status_code, expected_msg in status_messages.items():
+        agent = create_agent(db_session, status_code)
+        resp_deny = client.post("/agent/v1/metrics/bulk", json={
             "batch_uid": str(uuid.uuid4()),
             "sequence": 1,
             "collected_at": datetime.now(timezone.utc).isoformat(),
-            "items": [{
-                "metric_code": "CPU_USAGE_PCT",
-                "dimension_key": "core",
-                "dimension_value": "all",
-                "metric_value": 50.0,
-                "collected_at": datetime.now(timezone.utc).isoformat()
-            }]
+            "items": []
+        }, headers={"X-Agent-Uid": agent.agent_uid})
+        assert resp_deny.status_code == 403
+        assert resp_deny.json()["detail"] == {
+            "success": False,
+            "code": "AGENT_NOT_APPROVED",
+            "message": expected_msg,
+            "current_status": status_code
         }
-        resp = client.post("/agent/v1/metrics/bulk", json=payload, headers=headers)
-        assert resp.status_code in (401, 403)
-        detail_msg = str(resp.json().get("detail", "")).lower()
-        assert "not found" in detail_msg or "not approved" in detail_msg or "unauthorized" in detail_msg or "승인" in detail_msg or "agent" in detail_msg or "forbidden" in detail_msg or "permission" in detail_msg
 
-    # Permit status
+    # 4. Permit status
     agent_permit = create_agent(db_session, "APPROVED")
-    headers = {"X-Agent-Uid": agent_permit.agent_uid}
     payload = {
         "batch_uid": str(uuid.uuid4()),
         "sequence": 1,
@@ -117,5 +147,6 @@ def test_agt_001_agent_status_permit_and_deny(db_session):
             "collected_at": datetime.now(timezone.utc).isoformat()
         }]
     }
-    resp = client.post("/agent/v1/metrics/bulk", json=payload, headers=headers)
-    assert resp.status_code == 200
+    resp_permit = client.post("/agent/v1/metrics/bulk", json=payload, headers={"X-Agent-Uid": agent_permit.agent_uid})
+    assert resp_permit.status_code == 200
+    assert resp_permit.json()["success"] is True

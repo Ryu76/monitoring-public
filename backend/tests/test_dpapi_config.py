@@ -18,6 +18,15 @@ required_test_values = {
     "SECRET_KEY": "test_secret_key",
 }
 
+@pytest.fixture(autouse=True)
+def restore_config():
+    import app.core.config as config
+    original_environ = os.environ.copy()
+    yield
+    os.environ.clear()
+    os.environ.update(original_environ)
+    with patch('app.core.config.load_encrypted_env', return_value={}):
+        importlib.reload(config)
 
 def test_load_encrypted_env():
     with TemporaryDirectory() as temp_dir:
