@@ -19,7 +19,7 @@ class CheckResultHistory(Base):
     """Historical process, service, and port check results sent by agents."""
     __tablename__ = "mon_check_result_hist"
 
-    check_result_id = Column(Integer, primary_key=True, autoincrement=True)
+    check_result_id = Column(Integer, primary_key=True)
     server_id = Column(Integer, nullable=False)
     agent_id = Column(Integer)
     target_type_code = Column(String(30), nullable=False)

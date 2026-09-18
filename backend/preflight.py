@@ -57,7 +57,17 @@ def run_preflight(backend_dir=None):
         print("[FAIL] Database credentials missing from configuration.")
         return False
 
-    db_url = f"oracle+oracledb://{db_user}:{db_password}@{db_host}:{db_port}/?service_name={db_service}"
+    from sqlalchemy.engine import URL
+    db_url = URL.create(
+        drivername="oracle+oracledb",
+        username=db_user,
+        password=db_password,
+        host=db_host,
+        port=db_port,
+        query={"service_name": db_service}
+    )
+    # Convert to string but DO NOT log it
+    db_url_str = db_url.render_as_string(hide_password=False)
 
     try:
         engine = create_engine(db_url, echo=False)

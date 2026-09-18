@@ -38,7 +38,7 @@ class MetricHistory(Base):
     """mon_metric_hist - 메트릭 이력 데이터"""
     __tablename__ = "mon_metric_hist"
 
-    metric_hist_id = Column(Integer, primary_key=True, autoincrement=True)
+    metric_hist_id = Column(Integer, primary_key=True)
     server_id = Column(Integer, nullable=False)          # FK 제약조건 DB에 없음
     agent_id = Column(Integer)
     metric_code = Column(String(60), nullable=False)

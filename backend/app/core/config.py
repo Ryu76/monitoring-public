@@ -61,8 +61,15 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+from sqlalchemy.engine import URL
+
 def get_database_url() -> str:
-    return (
-        f"oracle+oracledb://{settings.DB_USER}:{settings.DB_PASSWORD}"
-        f"@{settings.DB_HOST}:{settings.DB_PORT}/?service_name={settings.DB_SERVICE_NAME}"
+    url = URL.create(
+        drivername="oracle+oracledb",
+        username=settings.DB_USER,
+        password=settings.DB_PASSWORD,
+        host=settings.DB_HOST,
+        port=settings.DB_PORT,
+        query={"service_name": settings.DB_SERVICE_NAME}
     )
+    return url.render_as_string(hide_password=False)

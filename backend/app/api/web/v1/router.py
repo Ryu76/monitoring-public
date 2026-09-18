@@ -52,8 +52,7 @@ class ServerUpdateRequest(BaseModel):
     tags: Optional[str] = Field(None, max_length=500)
 
 
-def next_numeric_id(db: Session, column) -> int:
-    return (db.execute(select(func.max(column))).scalar() or 0) + 1
+
 
 
 def incident_to_dict(inc: Incident, actions: Optional[List[IncidentAction]] = None):
@@ -85,47 +84,6 @@ def incident_to_dict(inc: Incident, actions: Optional[List[IncidentAction]] = No
 def provided_fields(model: BaseModel) -> set[str]:
     return getattr(model, "model_fields_set", getattr(model, "__fields_set__", set()))
 
-
-def ensure_check_target_table(db: Session):
-    try:
-        db.execute(text("SELECT 1 FROM mon_check_target WHERE 1 = 0"))
-    except Exception:
-        db.rollback()
-        db.execute(text("""
-            CREATE TABLE mon_check_target (
-                check_target_id NUMBER NOT NULL PRIMARY KEY,
-                server_id NUMBER NOT NULL,
-                target_type_code VARCHAR2(30) NOT NULL,
-                target_name VARCHAR2(200) NOT NULL,
-                use_yn CHAR(1) DEFAULT 'Y' NOT NULL,
-                created_at TIMESTAMP,
-                updated_at TIMESTAMP
-            )
-        """))
-        db.commit()
-
-
-def ensure_check_result_hist_table(db: Session):
-    try:
-        db.execute(text("SELECT 1 FROM mon_check_result_hist WHERE 1 = 0"))
-    except Exception:
-        db.rollback()
-        db.execute(text("""
-            CREATE TABLE mon_check_result_hist (
-                check_result_id NUMBER NOT NULL PRIMARY KEY,
-                server_id NUMBER NOT NULL,
-                agent_id NUMBER,
-                target_type_code VARCHAR2(30) NOT NULL,
-                target_name VARCHAR2(200) NOT NULL,
-                metric_code VARCHAR2(60) NOT NULL,
-                metric_value NUMBER,
-                string_value VARCHAR2(1000),
-                status_code VARCHAR2(30),
-                collected_at TIMESTAMP NOT NULL,
-                received_at TIMESTAMP NOT NULL
-            )
-        """))
-        db.commit()
 
 
 # ──────────────────────── Dashboard ────────────────────────
@@ -316,7 +274,7 @@ def update_server(
 
 @router.get("/servers/{server_id}/check-targets")
 def get_server_check_targets(server_id: int, db: Session = Depends(get_db)):
-    ensure_check_target_table(db)
+    pass
     server = db.execute(select(Server).where(Server.server_id == server_id)).scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
@@ -335,7 +293,7 @@ def update_server_check_targets(
     req: ServerCheckTargetsRequest,
     db: Session = Depends(get_db),
 ):
-    ensure_check_target_table(db)
+    pass
     server = db.execute(select(Server).where(Server.server_id == server_id)).scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
@@ -343,7 +301,6 @@ def update_server_check_targets(
     now = datetime.now(timezone.utc)
     db.execute(delete(CheckTarget).where(CheckTarget.server_id == server_id))
 
-    next_id = next_numeric_id(db, CheckTarget.check_target_id)
     rows = []
     for target_type, values in (
         ("PROCESS", normalize_names(req.processes)),
@@ -352,7 +309,6 @@ def update_server_check_targets(
     ):
         for target_name in values:
             rows.append(CheckTarget(
-                check_target_id=next_id,
                 server_id=server_id,
                 target_type_code=target_type,
                 target_name=target_name,
@@ -360,7 +316,6 @@ def update_server_check_targets(
                 created_at=now,
                 updated_at=now,
             ))
-            next_id += 1
 
     db.add_all(rows)
     db.commit()
@@ -381,7 +336,7 @@ def get_server_check_history(
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
-    ensure_check_result_hist_table(db)
+    pass
     server = db.execute(select(Server).where(Server.server_id == server_id)).scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
@@ -584,9 +539,7 @@ def create_incident_from_event(
             return {"success": True, "data": incident_to_dict(inc, actions), "message": "Incident already linked"}
 
     now = datetime.now(timezone.utc)
-    incident_id = next_numeric_id(db, Incident.incident_id)
     inc = Incident(
-        incident_id=incident_id,
         incident_title=req.incident_title or evt.title,
         status_code="OPEN",
         impact_code=req.impact_code or "MEDIUM",
@@ -597,12 +550,12 @@ def create_incident_from_event(
         updated_at=now,
     )
     db.add(inc)
-    evt.incident_id = incident_id
+    db.flush()
+    evt.incident_id = inc.incident_id
 
     note = req.action_note or f"이벤트에서 인시던트 생성: {evt.title}"
     action = IncidentAction(
-        action_id=next_numeric_id(db, IncidentAction.action_id),
-        incident_id=incident_id,
+        incident_id=inc.incident_id,
         action_user_id=req.assigned_to,
         action_note=note,
         action_at=now,
@@ -719,7 +672,6 @@ def add_incident_action(
     inc.updated_at = now
 
     action = IncidentAction(
-        action_id=next_numeric_id(db, IncidentAction.action_id),
         incident_id=incident_id,
         action_user_id=req.action_user_id,
         action_note=req.action_note,

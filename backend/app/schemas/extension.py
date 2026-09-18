@@ -18,10 +18,10 @@ class ExternalHealthCheckResponse(ExternalHealthCheckCreate):
 class RemoteCommandApprovalCreate(BaseModel):
     command_type: str = Field(..., max_length=100)
     target_server: str = Field(..., max_length=100)
-    requested_by: str = Field(..., max_length=100)
 
 class RemoteCommandApprovalResponse(RemoteCommandApprovalCreate):
     id: int
+    requested_by: Optional[str] = None
     approval_state: str
     dry_run_result: Optional[str]
     audit_event: Optional[str]

@@ -65,7 +65,7 @@ class AlertOutbox(Base):
     """mon_alert_outbox - 발송 대기열 (ALT-001)"""
     __tablename__ = "mon_alert_outbox"
 
-    outbox_id = Column(Integer, primary_key=True, autoincrement=True)
+    outbox_id = Column(Integer, primary_key=True)
     event_uid = Column(String(40), nullable=False)
     policy_id = Column(String(50), nullable=False)
     target = Column(String(200), nullable=False)
@@ -79,7 +79,7 @@ class AlertHistory(Base):
     """mon_alert_hist - 발송 이력 (ALT-001)"""
     __tablename__ = "mon_alert_hist"
 
-    history_id = Column(Integer, primary_key=True, autoincrement=True)
+    history_id = Column(Integer, primary_key=True)
     event_uid = Column(String(40))
     policy_id = Column(String(50))
     target = Column(String(200))

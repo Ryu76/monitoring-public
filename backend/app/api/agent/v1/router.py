@@ -81,55 +81,7 @@ def ensure_metric_def(db: Session, metric_code: str):
     ))
     db.flush()
 
-
-def ensure_check_target_table(db: Session):
-    try:
-        db.execute(text("SELECT 1 FROM mon_check_target WHERE 1 = 0"))
-    except Exception:
-        db.rollback()
-        db.execute(text("""
-            CREATE TABLE mon_check_target (
-                check_target_id NUMBER NOT NULL PRIMARY KEY,
-                server_id NUMBER NOT NULL,
-                target_type_code VARCHAR2(30) NOT NULL,
-                target_name VARCHAR2(200) NOT NULL,
-                use_yn CHAR(1) DEFAULT 'Y' NOT NULL,
-                created_at TIMESTAMP,
-                updated_at TIMESTAMP
-            )
-        """))
-        db.commit()
-
-
-def ensure_check_result_hist_table(db: Session):
-    try:
-        db.execute(text("SELECT 1 FROM mon_check_result_hist WHERE 1 = 0"))
-    except Exception:
-        db.rollback()
-        db.execute(text("""
-            CREATE TABLE mon_check_result_hist (
-                check_result_id NUMBER NOT NULL PRIMARY KEY,
-                server_id NUMBER NOT NULL,
-                agent_id NUMBER,
-                target_type_code VARCHAR2(30) NOT NULL,
-                target_name VARCHAR2(200) NOT NULL,
-                metric_code VARCHAR2(60) NOT NULL,
-                metric_value NUMBER,
-                string_value VARCHAR2(1000),
-                status_code VARCHAR2(30),
-                collected_at TIMESTAMP NOT NULL,
-                received_at TIMESTAMP NOT NULL
-            )
-        """))
-        db.commit()
-
-
-def next_check_result_id(db: Session) -> int:
-    return (db.execute(select(func.max(CheckResultHistory.check_result_id))).scalar() or 0) + 1
-
-
 def build_agent_config(agent: Agent, db: Session) -> AgentConfigData:
-    ensure_check_target_table(db)
     items = db.execute(
         select(CheckTarget)
         .where(CheckTarget.server_id == agent.server_id, CheckTarget.use_yn == "Y")
@@ -206,7 +158,7 @@ def enroll_agent(
                 existing_agent.started_at = now
                 existing_agent.last_connected_at = now
                 existing_agent.updated_at = now
-                
+
                 agent_id = existing_agent.agent_id
             else:
                 # 신규 에이전트 생성 후 기존 서버와 연결 (자동 승인 상태 'APPROVED')
@@ -445,25 +397,12 @@ def receive_metrics(
     """
     now = datetime.now(timezone.utc)
     received_count = 0
-    
-    try:
-        db.execute(text("SELECT 1 FROM mon_metric_receipt_ledger WHERE 1 = 0"))
-    except Exception:
-        db.rollback()
-        db.execute(text("""
-            CREATE TABLE mon_metric_receipt_ledger (
-                batch_uid VARCHAR2(40) NOT NULL PRIMARY KEY,
-                agent_id NUMBER NOT NULL,
-                received_at TIMESTAMP NOT NULL,
-                item_count NUMBER NOT NULL
-            )
-        """))
-        db.commit()
+
 
     existing_ledger = db.execute(
         select(MetricReceiptLedger).where(MetricReceiptLedger.batch_uid == req.batch_uid)
     ).scalar_one_or_none()
-    
+
     if existing_ledger:
         return MetricBulkResponse(
             success=True,
@@ -481,7 +420,7 @@ def receive_metrics(
             if previous is None or item.collected_at >= previous.collected_at:
                 seen[key] = item
         unique_items = list(seen.values())
-        
+
         if len(unique_items) < len(req.items):
             logger.warning(
                 "Removed %d duplicate metrics from batch (total: %d -> %d)",
@@ -492,12 +431,31 @@ def receive_metrics(
         logger.warning("Deduplication failed: %s, continuing with all items", str(e))
 
     try:
-        if any(item.metric_code in CHECK_RESULT_METRICS for item in req.items):
-            ensure_check_result_hist_table(db)
+        pass
 
+        # Fix Stale Snapshot watermark
         replace_codes = {item.metric_code for item in req.items if item.metric_code in REPLACE_SET_METRICS}
         for metric_code in replace_codes:
             ensure_metric_def(db, metric_code)
+
+            # Find the max collected_at in the batch for this metric
+            batch_max_time = max(
+                item.collected_at for item in req.items if item.metric_code == metric_code
+            )
+
+            # Check existing max collected_at in DB
+            db_max_time = db.execute(
+                select(func.max(MetricCurrent.collected_at)).where(
+                    MetricCurrent.server_id == agent.server_id,
+                    MetricCurrent.metric_code == metric_code
+                )
+            ).scalar()
+
+            if db_max_time and db_max_time > batch_max_time:
+                logger.warning("Stale snapshot received for %s, skipping deletion.", metric_code)
+                req.items = [item for item in req.items if item.metric_code != metric_code]
+                continue
+
             db.execute(
                 delete(MetricCurrent).where(
                     MetricCurrent.server_id == agent.server_id,
@@ -543,6 +501,7 @@ def receive_metrics(
                     received_at=now,
                 )
                 db.add(new_curr)
+                db.flush()  # <--- Prevent unique constraint violation on next iteration
 
             # 2) mon_metric_hist INSERT
             hist = MetricHistory(
@@ -559,13 +518,7 @@ def receive_metrics(
                 received_at=now,
                 batch_uid=req.batch_uid,
             )
-            # History partition maintenance is separate from live metric display.
-            # Catching exception with a nested transaction to prevent rolling back current metrics
-            try:
-                with db.begin_nested():
-                    db.add(hist)
-            except Exception as e:
-                logger.warning(f"Failed to insert metric history (partition issue?): {e}")
+            db.add(hist)
 
             if item.metric_code in CHECK_RESULT_METRICS:
                 db.add(CheckResultHistory(

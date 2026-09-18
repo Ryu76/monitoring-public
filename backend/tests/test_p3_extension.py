@@ -43,15 +43,27 @@ client = TestClient(app)
 def setup_db():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
-    from app.models.system import SysUser
+    from app.models.system import SysUser, SysRole, SysUserRole
     with engine.begin() as conn:
         conn.execute(SysUser.__table__.insert().values(user_id=1, login_id="admin_test", user_name="Admin", password_hash="hash", status_code="ACTIVE", use_yn="Y"))
+        conn.execute(SysRole.__table__.insert().values(role_id=1, role_code="ADMIN", role_name="Admin Role"))
+        conn.execute(SysUserRole.__table__.insert().values(user_id=1, role_id=1))
+
+        # Add another user for operator
+        conn.execute(SysUser.__table__.insert().values(user_id=2, login_id="op_test", user_name="Operator", password_hash="hash", status_code="ACTIVE", use_yn="Y"))
+        conn.execute(SysRole.__table__.insert().values(role_id=2, role_code="OPERATOR", role_name="Op Role"))
+        conn.execute(SysUserRole.__table__.insert().values(user_id=2, role_id=2))
     yield
     Base.metadata.drop_all(bind=engine)
 
 @pytest.fixture
 def auth_headers():
     token = jwt.encode({"sub": "admin_test"}, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return {"Authorization": f"Bearer {token}"}
+
+@pytest.fixture
+def op_auth_headers():
+    token = jwt.encode({"sub": "op_test"}, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return {"Authorization": f"Bearer {token}"}
 
 def test_external_health_check_create(auth_headers):
@@ -70,15 +82,15 @@ def test_external_health_check_create(auth_headers):
     assert data["target_type"] == "URL"
     assert data["status"] == "PASS"
 
-def test_remote_command_approval_flow(auth_headers):
+def test_remote_command_approval_flow(auth_headers, op_auth_headers):
+    # requested by OP
     response = client.post(
         "/api/v1/p3/remote-commands",
         json={
             "command_type": "ping",
-            "target_server": "web-01",
-            "requested_by": "test_user"
+            "target_server": "web-01"
         },
-        headers=auth_headers
+        headers=op_auth_headers
     )
     assert response.status_code == 200, response.text
     cmd = response.json()
@@ -86,6 +98,15 @@ def test_remote_command_approval_flow(auth_headers):
     assert "dry-run" in cmd["dry_run_result"].lower()
 
     cmd_id = cmd["id"]
+
+    # OP tries to approve, fails (mutator can't approve, and also requester can't approve)
+    response = client.put(
+        f"/api/v1/p3/remote-commands/{cmd_id}/approve",
+        headers=op_auth_headers
+    )
+    assert response.status_code == 403, response.text
+
+    # ADMIN approves, succeeds
     response = client.put(
         f"/api/v1/p3/remote-commands/{cmd_id}/approve",
         headers=auth_headers
@@ -100,8 +121,7 @@ def test_remote_command_negative(auth_headers):
         "/api/v1/p3/remote-commands",
         json={
             "command_type": "rm -rf /",
-            "target_server": "web-01",
-            "requested_by": "test_user"
+            "target_server": "web-01"
         },
         headers=auth_headers
     )
