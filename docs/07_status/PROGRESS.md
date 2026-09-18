@@ -61,3 +61,24 @@
 ### 외부 인프라 차단 조건
 - 실제 운영 인프라 통신 및 Credential 유출 방지를 위해 외부 접속/명령 실행은 전면 차단됨
 - 모의 데이터 통과 목적으로만 구현됨.
+
+## 2026-09-18 6차 구현 및 QA (PRD 100% 추적성 및 E2E Closure)
+
+### 실제 실행 명령 및 QA 결과
+- `pytest backend/tests/test_agt_001.py backend/tests/test_cfg_001.py -v`
+  - Pass/Fail Count: All passed
+  - 내용: AGT-001 상태 기반 (PENDING/BLOCKED/REVOKED deny 및 APPROVED permit) API 접근 제어 회귀 테스트 성공. CFG-001 Host 환경 변수 우선순위, Missing secret fail-closed, DPAPI round-trip, Unsafe fallback 방지 테스트 성공.
+- `npx playwright test` (frontend 디렉토리)
+  - Pass/Fail Count: 1 passed (13.5s)
+  - 내용: Playwright 기반 브라우저 E2E 시나리오(Login, Dashboard, Server, Incidents mock API 통신) 테스트 성공.
+- `python preflight.py`
+  - 내용: Oracle DPAPI 연결 Preflight 실행 결과 `BLOCKED: Encrypted local config or DPAPI key does not exist. Setup Command needed: python backend/encrypt_env.py with Oracle credentials.` 확인.
+
+### PRD ID별 상태 업데이트
+
+| ID | Status | Note |
+|---|---|---|
+| **AGT-001** (Agent Auth/Deny) | `implemented` | Missing/PENDING/BLOCKED/REVOKED deny 및 APPROVED permit API 회귀 테스트 확인 |
+| **CFG-001** (Config Security) | `implemented` | 환경 우선순위, Fail-closed, DPAPI Round-trip, Safe fallback 확인 완료 |
+| **MON-004** (Dashboard & UI) | `implemented` | Playwright 기반 local Vite server + mocked API 브라우저 E2E 검증(PASS) 완료 |
+| **ING-004** (History partition) | `blocked` | Oracle DB 및 암호화 설정 부재로 Preflight 차단됨. `python backend/encrypt_env.py` 통한 Oracle credential 세팅 후 재시도 필요 |
