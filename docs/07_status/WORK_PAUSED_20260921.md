@@ -182,3 +182,23 @@ exit 0
 Oracle 운영 테스트는 아직 시작하지 못했다. 현재 모든 확인 대상 worktree에 `backend/.env.enc`와 `backend/env.key.dpapi`가 없고, process environment에도 `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_SERVICE_NAME`, `SECRET_KEY`가 설정되어 있지 않다. 자격 증명 값을 채팅에 전송할 필요는 없으며, 암호화된 설정 파일 쌍의 안전한 배치 경로 또는 이미 구성된 실행 환경을 지정받은 뒤 `SELECT 1 FROM DUAL` + explicit `ROLLBACK` preflight부터 수행한다. DDL migration은 Oracle의 implicit commit 특성상 별도 명시 승인 없이는 운영 endpoint에서 실행하지 않는다.
 
 이 문서 시점에도 PR #1의 main 병합은 보류다. 남은 운영 Oracle 증적 및 독립 merge review를 통과하기 전에는 main으로 병합하지 않는다.
+
+## 10. 직접 Oracle read-only 운영 호환성 검사 (2026-09-21)
+
+사용자 승인 하에 로컬 `backend/.env`의 Oracle 설정을 process memory에서만 읽어 직접 접속을 확인했다. 사용자가 지정한 root `backend.env` 파일은 존재하지 않아 실제 존재하는 `backend/.env` 형식(`DB_USER`, `DB_PASS`, `DB_DSN`)을 사용했다. 자격 증명 값, DSN, host는 출력하거나 Git에 기록하지 않았다.
+
+- thin mode 최초 접속은 Oracle 11.2 서버 미지원 `DPY-3010`으로 실패했다.
+- 설치된 Oracle 11.2 local client의 thick mode로 재시도했다.
+- 실행 SQL은 `SELECT 1 FROM DUAL`, Oracle version 조회, `user_tables` schema 존재 조회뿐이며 세션은 명시적으로 `ROLLBACK` 후 종료했다.
+
+결과:
+
+```text
+ORACLE_READONLY_PREFLIGHT=PASS
+ORACLE_VERSION=11.2.0.1.0
+SCHEMA_TABLES_PRESENT=MON_AGENT,MON_METRIC_DEF,MON_METRIC_HIST,MON_SERVER
+SCHEMA_TABLES_MISSING=MON_METRIC_RECEIPT_LEDGER,MON_CHECK_SNAPSHOT_WATERMARK
+ORACLE_TRANSACTION=ROLLED_BACK
+```
+
+즉, 연결·인증·baseline monitoring schema 접근은 확인됐지만 이번 기능이 필요로 하는 신규 receipt ledger 및 snapshot watermark 테이블은 현재 Oracle schema에 없다. Alembic migration의 DDL은 Oracle에서 implicit commit되며 ROLLBACK으로 되돌릴 수 없다. 따라서 실제 migration 적용은 대상 schema와 변경 창을 명시한 별도 DDL 적용 승인 후에만 수행한다. 그 전까지 PR #1 main 병합은 계속 보류한다.
