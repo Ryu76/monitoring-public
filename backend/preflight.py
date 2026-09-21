@@ -58,23 +58,27 @@ def run_preflight(backend_dir=None):
         return False
 
     from sqlalchemy.engine import URL
+    try:
+        db_port_number = int(db_port)
+    except (TypeError, ValueError):
+        print("[FAIL] Database port is invalid.")
+        return False
+
     db_url = URL.create(
         drivername="oracle+oracledb",
         username=db_user,
         password=db_password,
         host=db_host,
-        port=db_port,
-        query={"service_name": db_service}
+        port=db_port_number,
+        query={"service_name": db_service},
     )
-    # Convert to string but DO NOT log it
-    db_url_str = db_url.render_as_string(hide_password=False)
 
     try:
         engine = create_engine(db_url, echo=False)
         SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
         db = SessionLocal()
         try:
-            # Read-only test
+            # Read-only test; explicitly end the transaction even for SELECT.
             db.execute(text("SELECT 1 FROM DUAL"))
             db.rollback()
             print("[OK] Database connection and read test successful.")

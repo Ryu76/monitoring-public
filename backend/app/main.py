@@ -4,23 +4,13 @@ from contextlib import asynccontextmanager
 from app.api.agent.v1.router import router as agent_router
 from app.api.web.v1.router import router as web_router
 from app.api.admin.v1.router import router as admin_router
-from app.worker import start_worker
-from app.scheduler import start_scheduler
-from app.alert_worker import start_alert_worker
-from app.aggregator import start_aggregator
-from app.core.database import engine
-from app.db_init import ensure_operational_tables
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s - %(message)s')
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """앱 기동 시 API 전용 초기화를 수행합니다."""
-    try:
-        ensure_operational_tables(engine)
-    except Exception as exc:
-        logging.getLogger(__name__).warning("DB initialization skipped: %s", exc)
+    """API lifecycle only; schema changes are applied by Alembic before deploy."""
     logging.getLogger(__name__).info("API started. (Workers are separated)")
     yield
     logging.getLogger(__name__).info("API shutting down.")

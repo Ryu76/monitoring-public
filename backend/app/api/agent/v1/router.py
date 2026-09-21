@@ -6,12 +6,18 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func, delete, text
+from sqlalchemy import select, delete
 
 from app.api.dependencies import get_db, verify_agent
 from app.models.server import Server, ServerStatusCurr
 from app.models.agent import Agent, AgentHeartbeatHist, AgentStatusCurr
-from app.models.resource import MetricCurrent, MetricHistory, MetricDef, MetricReceiptLedger
+from app.models.resource import (
+    CheckSnapshotWatermark,
+    MetricCurrent,
+    MetricHistory,
+    MetricDef,
+    MetricReceiptLedger,
+)
 from app.models.process import CheckTarget, CheckResultHistory
 from app.schemas.agent import (
     AgentEnrollRequest, AgentEnrollResponse,
@@ -431,29 +437,36 @@ def receive_metrics(
         logger.warning("Deduplication failed: %s, continuing with all items", str(e))
 
     try:
-        pass
-
-        # Fix Stale Snapshot watermark
-        replace_codes = {item.metric_code for item in req.items if item.metric_code in REPLACE_SET_METRICS}
-        for metric_code in replace_codes:
-            ensure_metric_def(db, metric_code)
-
-            # Find the max collected_at in the batch for this metric
-            batch_max_time = max(
+        # PROCESS/SERVICE/PORT values are snapshots, not independent current
+        # observations. A durable per-metric watermark must be checked before
+        # delete-and-replace so a delayed spool replay cannot erase new rows.
+        stale_replace_codes: set[str] = set()
+        replace_codes = {
+            item.metric_code for item in req.items
+            if item.metric_code in REPLACE_SET_METRICS
+        }
+        snapshot_at_by_code = {
+            metric_code: max(
                 item.collected_at for item in req.items if item.metric_code == metric_code
             )
-
-            # Check existing max collected_at in DB
-            db_max_time = db.execute(
-                select(func.max(MetricCurrent.collected_at)).where(
-                    MetricCurrent.server_id == agent.server_id,
-                    MetricCurrent.metric_code == metric_code
+            for metric_code in replace_codes
+        }
+        for metric_code in replace_codes:
+            snapshot_at = snapshot_at_by_code[metric_code]
+            ensure_metric_def(db, metric_code)
+            watermark = db.get(
+                CheckSnapshotWatermark,
+                (agent.server_id, metric_code),
+            )
+            if watermark and snapshot_at < watermark.collected_at:
+                stale_replace_codes.add(metric_code)
+                logger.info(
+                    "Rejecting stale %s snapshot for server_id=%d: %s < %s",
+                    metric_code,
+                    agent.server_id,
+                    snapshot_at,
+                    watermark.collected_at,
                 )
-            ).scalar()
-
-            if db_max_time and db_max_time > batch_max_time:
-                logger.warning("Stale snapshot received for %s, skipping deletion.", metric_code)
-                req.items = [item for item in req.items if item.metric_code != metric_code]
                 continue
 
             db.execute(
@@ -462,21 +475,43 @@ def receive_metrics(
                     MetricCurrent.metric_code == metric_code,
                 )
             )
+            if watermark is None:
+                db.add(CheckSnapshotWatermark(
+                    server_id=agent.server_id,
+                    metric_code=metric_code,
+                    collected_at=snapshot_at,
+                    received_at=now,
+                ))
+            elif snapshot_at > watermark.collected_at:
+                watermark.collected_at = snapshot_at
+                watermark.received_at = now
 
-        for item in req.items:
+        accepted_items = [
+            item for item in req.items
+            if item.metric_code not in stale_replace_codes
+        ]
+        # Session autoflush may be disabled (as it is in the ingestion tests),
+        # so retain each current row seen in this batch instead of issuing a
+        # second SELECT that cannot see a pending INSERT.  This preserves every
+        # history row while one current row receives the latest observation.
+        current_by_key: dict[tuple[int, str, str, str], MetricCurrent] = {}
+        for item in accepted_items:
             dim_key = item.dimension_key or "-"
             dim_value = item.dimension_value or "-"
             ensure_metric_def(db, item.metric_code)
+            current_key = (agent.server_id, item.metric_code, dim_key, dim_value)
 
             # 1) mon_metric_curr UPSERT (복합 PK: server_id + metric_code + dim_key + dim_value)
-            existing = db.execute(
-                select(MetricCurrent).where(
-                    MetricCurrent.server_id == agent.server_id,
-                    MetricCurrent.metric_code == item.metric_code,
-                    MetricCurrent.dimension_key == dim_key,
-                    MetricCurrent.dimension_value == dim_value,
-                )
-            ).scalar_one_or_none()
+            existing = current_by_key.get(current_key)
+            if existing is None:
+                existing = db.execute(
+                    select(MetricCurrent).where(
+                        MetricCurrent.server_id == agent.server_id,
+                        MetricCurrent.metric_code == item.metric_code,
+                        MetricCurrent.dimension_key == dim_key,
+                        MetricCurrent.dimension_value == dim_value,
+                    )
+                ).scalar_one_or_none()
 
             if existing:
                 if item.collected_at >= existing.collected_at:
@@ -501,7 +536,7 @@ def receive_metrics(
                     received_at=now,
                 )
                 db.add(new_curr)
-                db.flush()  # <--- Prevent unique constraint violation on next iteration
+                current_by_key[current_key] = new_curr
 
             # 2) mon_metric_hist INSERT
             hist = MetricHistory(
@@ -535,6 +570,10 @@ def receive_metrics(
                 ))
             received_count += 1
 
+        # Make history/check-result insertion fail before an ACK is even added.
+        # Commit below is one transaction, so receipt, watermark, current, and
+        # history state either persist together or are all rolled back.
+        db.flush()
         db.add(MetricReceiptLedger(
             batch_uid=req.batch_uid,
             agent_id=agent.agent_id,

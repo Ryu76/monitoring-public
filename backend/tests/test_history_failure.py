@@ -22,7 +22,12 @@ from app.api.dependencies import get_db
 from app.core.database import Base
 from app.models.agent import Agent
 from app.models.server import Server
-from app.models.resource import MetricHistory, MetricCurrent, MetricReceiptLedger
+from app.models.resource import (
+    CheckSnapshotWatermark,
+    MetricHistory,
+    MetricCurrent,
+    MetricReceiptLedger,
+)
 import datetime
 
 from sqlalchemy.pool import StaticPool
@@ -90,18 +95,25 @@ def test_history_failure_rolls_back_everything():
         assert len(curr) == 0
 
 def test_stale_snapshot_watermark():
-    """Ensure older snapshot doesn't delete newer snapshot current state."""
+    """An older item snapshot cannot delete current rows or advance its watermark."""
 
     # Send batch 1 with newer timestamp
     payload_new = {
         "batch_uid": "batch-new-1",
         "sequence": 1,
-        "collected_at": "2026-09-18T10:00:00",
+        # The envelope time is transport metadata; item times drive snapshots.
+        "collected_at": "2026-09-18T08:00:00",
         "items": [
             {
-                "metric_code": "proc_count",
+                "metric_code": "PROCESS_STATUS",
                 "metric_value": 10,
                 "dimension_value": "python",
+                "collected_at": "2026-09-18T10:00:00"
+            },
+            {
+                "metric_code": "PROCESS_STATUS",
+                "metric_value": 20,
+                "dimension_value": "nginx",
                 "collected_at": "2026-09-18T10:00:00"
             }
         ]
@@ -113,10 +125,11 @@ def test_stale_snapshot_watermark():
     payload_old = {
         "batch_uid": "batch-old-1",
         "sequence": 1,
-        "collected_at": "2026-09-18T09:00:00",
+        # A later envelope must not make its older item snapshot acceptable.
+        "collected_at": "2026-09-18T12:00:00",
         "items": [
             {
-                "metric_code": "proc_count",
+                "metric_code": "PROCESS_STATUS",
                 "metric_value": 5,
                 "dimension_value": "python",
                 "collected_at": "2026-09-18T09:00:00"
@@ -126,8 +139,66 @@ def test_stale_snapshot_watermark():
     resp2 = client.post("/agent/v1/metrics/bulk", json=payload_old, headers={"X-Agent-Uid": "123"})
     assert resp2.status_code == 200, resp2.text
 
-    # The current metric should STILL be the newer one (value = 10)
+    # No current row is deleted/replaced and the accepted item timestamp is
+    # retained as the watermark, rather than either envelope timestamp.
     with engine.connect() as conn:
-        curr = conn.execute(MetricCurrent.__table__.select().where(MetricCurrent.metric_code == "proc_count")).fetchall()
-        assert len(curr) == 1
-        assert curr[0].metric_value == 10
+        curr = conn.execute(
+            MetricCurrent.__table__.select().where(
+                MetricCurrent.metric_code == "PROCESS_STATUS"
+            )
+        ).fetchall()
+        assert {(row.dimension_value, row.metric_value) for row in curr} == {
+            ("python", 10),
+            ("nginx", 20),
+        }
+        watermark = conn.execute(CheckSnapshotWatermark.__table__.select()).one()
+        assert watermark.collected_at.isoformat() == "2026-09-18T10:00:00"
+
+
+def test_same_batch_current_upsert_preserves_history_and_latest_item_timestamp():
+    """A repeated current PK in one batch has one latest current row and two histories."""
+    payload = {
+        "batch_uid": "batch-current-upsert-1",
+        "sequence": 1,
+        # The current timestamp must come from the individual observations.
+        "collected_at": "2026-09-18T08:00:00",
+        "items": [
+            {
+                "metric_code": "CPU_USAGE_PCT",
+                "metric_value": 25,
+                "dimension_key": "cpu",
+                "dimension_value": "total",
+                "collected_at": "2026-09-18T10:00:00",
+            },
+            {
+                "metric_code": "CPU_USAGE_PCT",
+                "metric_value": 50,
+                "dimension_key": "cpu",
+                "dimension_value": "total",
+                "collected_at": "2026-09-18T11:00:00",
+            },
+        ],
+    }
+
+    response = client.post("/agent/v1/metrics/bulk", json=payload, headers={"X-Agent-Uid": "123"})
+    assert response.status_code == 200, response.text
+    assert response.json()["received_count"] == 2
+
+    with engine.connect() as conn:
+        current = conn.execute(
+            MetricCurrent.__table__.select().where(
+                MetricCurrent.metric_code == "CPU_USAGE_PCT"
+            )
+        ).one()
+        assert current.metric_value == 50
+        assert current.collected_at.isoformat() == "2026-09-18T11:00:00"
+
+        history = conn.execute(
+            MetricHistory.__table__.select().where(
+                MetricHistory.metric_code == "CPU_USAGE_PCT"
+            ).order_by(MetricHistory.collected_at)
+        ).fetchall()
+        assert [(row.metric_value, row.collected_at.isoformat()) for row in history] == [
+            (25, "2026-09-18T10:00:00"),
+            (50, "2026-09-18T11:00:00"),
+        ]

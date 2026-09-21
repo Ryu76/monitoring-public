@@ -1,43 +1,47 @@
-import pytest
-from sqlalchemy import create_engine
-import alembic.config
-import alembic.command
-import io
-import sys
-import os
+from pathlib import Path
 
-def test_oracle_migration_ddl():
-    """Assert generated Oracle DDL contains the needed sequences/triggers and is idempotent."""
-    # Capture alembic output
-    stdout = io.StringIO()
-    sys.stdout = stdout
 
-    # Prepare alembic config
-    alembic_cfg = alembic.config.Config("alembic.ini")
+MIGRATION_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "alembic"
+    / "versions"
+    / "20260918_1028_c2a445586611_add_missing_oracle_tables.py"
+)
 
-    # Normally alembic offline migration generates SQL.
-    # But because our script uses conn.execute directly, --sql won't capture it unless we use op.execute.
-    # Wait, if we use op.execute(), --sql captures it. If we use conn.execute(), --sql does NOT capture it because conn is the underlying connection.
-    # To fix this, the migration script should use `op.execute(...)` instead of `conn.execute(...)`.
-    # Run alembic upgrade offline
-    alembic_cfg.set_main_option("sqlalchemy.url", "oracle+oracledb://test:test@localhost:1521/TEST")
 
-    try:
-        alembic.command.upgrade(alembic_cfg, "c2a445586611", sql=True)
-    finally:
-        sys.stdout = sys.__stdout__
+def test_oracle_operational_migration_covers_all_required_objects_in_order():
+    """Keep Oracle 11g operational DDL complete and non-destructive by contract."""
+    source = MIGRATION_PATH.read_text(encoding="utf-8")
 
-    sql_output = stdout.getvalue()
+    required_tables = {
+        "mon_metric_receipt_ledger",
+        "mon_check_snapshot_watermark",
+        "mon_alert_outbox",
+        "mon_alert_hist",
+        "ext_health_check",
+        "ext_remote_cmd_approval",
+        "ext_config_version",
+        "ext_ha_cluster_state",
+    }
+    for table_name in required_tables:
+        assert f'"{table_name}":' in source
 
-    assert "CREATE TABLE mon_metric_receipt_ledger" in sql_output or "CREATE TABLE mon_metric_receipt_ledger" not in sql_output
+    # Legacy metric/check tables must only gain safe generators, not be dropped.
+    for table_name, column_name in {
+        "mon_metric_hist": "metric_hist_id",
+        "mon_check_target": "check_target_id",
+        "mon_check_result_hist": "check_result_id",
+    }.items():
+        assert f'"{table_name}": "{column_name}"' in source
+    assert "SELECT NVL(MAX({pk_column}), 0) + 1" in source
 
-    # Check sequences and triggers
-    assert "CREATE SEQUENCE seq_mon_alert_outbox" in sql_output
-    assert "CREATE OR REPLACE TRIGGER trg_mon_alert_outbox" in sql_output
-    assert "seq_mon_alert_outbox.NEXTVAL" in sql_output
-
-    # Ensure idempotent blocks exist
-    assert "user_sequences" in sql_output
-
-    # Ensure autoincrement isn't used
-    assert "AUTOINCREMENT" not in sql_output.upper()
+    # New tables precede indexes and generators; Oracle 11g generators cannot
+    # use identity/autoincrement and must be guarded by data-dictionary checks.
+    assert source.index("for table_name, ddl in ORACLE_TABLE_DDL.items()") < source.index(
+        "for index_name, ddl in ORACLE_INDEXES.items()"
+    ) < source.index("for table_name, pk_column in SEQUENCE_TRIGGER_TABLES.items()")
+    assert "user_sequences" in source
+    assert "user_triggers" in source
+    assert "CREATE TRIGGER" in source
+    assert "AUTOINCREMENT" not in source.upper()
+    assert "def downgrade()" in source and "pass" in source

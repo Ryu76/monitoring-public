@@ -1,13 +1,10 @@
-import pytest
-from app.core.config import get_database_url
-from sqlalchemy.engine import URL
+from sqlalchemy.engine.url import make_url
+
 
 def test_db_url_safety(monkeypatch):
-    """Ensure database URL is constructed using URL.create, handling special chars safely."""
-    monkeypatch.setenv("DB_USER", "user@name")
-    monkeypatch.setenv("DB_PASSWORD", "pass/word:123%")
-    monkeypatch.setenv("DB_HOST", "localhost")
-    monkeypatch.setenv("DB_PORT", "1521")
+    """Structured URL construction preserves reserved credential characters."""
+    import app.core.config as config
+
     class MockSettings:
         DB_USER = "user@name"
         DB_PASSWORD = "pass/word:123%"
@@ -15,14 +12,8 @@ def test_db_url_safety(monkeypatch):
         DB_PORT = 1521
         DB_SERVICE_NAME = "TEST"
 
-    monkeypatch.setattr("app.core.config.settings", MockSettings)
-
-    url_str = get_database_url()
-
-    # URL string should be properly encoded or constructed via SQLAlchemy
-    # Let's parse it back using SQLAlchemy URL and check properties
-    from sqlalchemy.engine.url import make_url
-    parsed_url = make_url(url_str)
+    monkeypatch.setattr(config, "settings", MockSettings)
+    parsed_url = make_url(config.get_database_url())
 
     assert parsed_url.username == "user@name"
     assert parsed_url.password == "pass/word:123%"

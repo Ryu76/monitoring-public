@@ -63,13 +63,13 @@ settings = Settings()
 
 from sqlalchemy.engine import URL
 
-def get_database_url() -> str:
-    url = URL.create(
+def get_database_url() -> URL:
+    """Build a structured SQLAlchemy URL so credential delimiters stay data."""
+    return URL.create(
         drivername="oracle+oracledb",
         username=settings.DB_USER,
         password=settings.DB_PASSWORD,
         host=settings.DB_HOST,
         port=settings.DB_PORT,
-        query={"service_name": settings.DB_SERVICE_NAME}
+        query={"service_name": settings.DB_SERVICE_NAME},
     )
-    return url.render_as_string(hide_password=False)
