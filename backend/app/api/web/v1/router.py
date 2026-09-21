@@ -12,6 +12,7 @@ from app.models.event import Event, Incident, IncidentAction
 from app.models.resource import MetricCurrent
 from app.models.process import CheckTarget, CheckResultHistory
 from app.domain.check_targets import normalize_names, normalize_ports, check_targets_to_dict
+from app.services.web_read_models import agent_list, dashboard_summary, server_list
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -91,32 +92,7 @@ def provided_fields(model: BaseModel) -> set[str]:
 @router.get("/dashboard/summary")
 def get_dashboard_summary(db: Session = Depends(get_db)):
     """대시보드 요약: 서버/에이전트/장애 현황 통합"""
-    total_servers = db.execute(select(func.count(Server.server_id)).where(Server.use_yn == 'Y')).scalar() or 0
-
-    status_counts = {}
-    for status_label in ['NORMAL', 'WARNING', 'CRITICAL', 'UNKNOWN']:
-        cnt = db.execute(
-            select(func.count(ServerStatusCurr.server_id)).where(ServerStatusCurr.composite_status == status_label)
-        ).scalar() or 0
-        status_counts[status_label.lower()] = cnt
-
-    total_agents = db.execute(select(func.count(Agent.agent_id))).scalar() or 0
-    online_agents = db.execute(
-        select(func.count(AgentStatusCurr.agent_id)).where(AgentStatusCurr.agent_status == 'NORMAL')
-    ).scalar() or 0
-
-    open_events = db.execute(select(func.count(Event.event_uid)).where(Event.status_code == 'OPEN')).scalar() or 0
-
-    return {
-        "success": True,
-        "data": {
-            "total_servers": total_servers,
-            **status_counts,
-            "total_agents": total_agents,
-            "online_agents": online_agents,
-            "open_events": open_events,
-        }
-    }
+    return {"success": True, "data": dashboard_summary(db)}
 
 # ──────────────────────── Servers ────────────────────────
 
@@ -127,31 +103,10 @@ def get_servers(
     db: Session = Depends(get_db)
 ):
     """서버 목록 + 종합 상태 (그룹/태그 필터링 지원)"""
-    stmt = select(Server).where(Server.use_yn == 'Y')
-    if server_group:
-        stmt = stmt.where(Server.server_group == server_group)
-    if tags:
-        # Simple LIKE filter for comma-separated tags (dev-safe adapter)
-        stmt = stmt.where(Server.tags.like(f"%{tags}%"))
-
-    servers = db.execute(stmt).scalars().all()
-    result = []
-    for s in servers:
-        status = db.execute(
-            select(ServerStatusCurr).where(ServerStatusCurr.server_id == s.server_id)
-        ).scalar_one_or_none()
-        result.append({
-            "server_id": s.server_id,
-            "server_uid": s.server_uid,
-            "server_name": s.server_name,
-            "host_name": s.host_name,
-            "mgmt_ip": s.mgmt_ip,
-            "os_type_code": s.os_type_code,
-            "server_group": s.server_group,
-            "tags": s.tags,
-            "composite_status": status.composite_status if status else "UNKNOWN",
-        })
-    return {"success": True, "data": result}
+    return {
+        "success": True,
+        "data": server_list(db, server_group=server_group, tags=tags),
+    }
 
 @router.get("/servers/{server_id}")
 def get_server_detail(server_id: int, db: Session = Depends(get_db)):
@@ -433,27 +388,7 @@ def get_server_metric_history(
 @router.get("/agents")
 def get_agents(db: Session = Depends(get_db)):
     """에이전트 목록 + 현재 상태"""
-    agents = db.execute(select(Agent)).scalars().all()
-    result = []
-    for a in agents:
-        status = db.execute(
-            select(AgentStatusCurr).where(AgentStatusCurr.agent_id == a.agent_id)
-        ).scalar_one_or_none()
-        server = db.execute(
-            select(Server).where(Server.server_id == a.server_id)
-        ).scalar_one_or_none()
-        result.append({
-            "agent_id": a.agent_id,
-            "agent_uid": a.agent_uid,
-            "server_id": a.server_id,
-            "host_name": server.host_name if server else None,
-            "mgmt_ip": server.mgmt_ip if server else None,
-            "status_code": a.status_code,
-            "agent_version": a.agent_version,
-            "agent_status": status.agent_status if status else "UNKNOWN",
-            "last_heartbeat_at": status.last_heartbeat_at.isoformat() if status and status.last_heartbeat_at else None,
-        })
-    return {"success": True, "data": result}
+    return {"success": True, "data": agent_list(db)}
 
 @router.put("/agents/{agent_id}/approve", dependencies=[Depends(require_roles(["ADMIN"]))])
 def approve_agent(agent_id: int, db: Session = Depends(get_db)):
