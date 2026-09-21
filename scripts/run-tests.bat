@@ -10,34 +10,35 @@ set "INSTALL=0"
 
 :parse_args
 if "%~1"=="" goto run_tasks
+set "KNOWN=0"
 if /I "%~1"=="all" (
   set "RUN_BACKEND=1"
   set "RUN_FRONTEND=1"
-  shift
-  goto parse_args
+  set "KNOWN=1"
 )
 if /I "%~1"=="backend" (
   set "RUN_BACKEND=1"
   set "RUN_FRONTEND=0"
-  shift
-  goto parse_args
+  set "KNOWN=1"
 )
 if /I "%~1"=="frontend" (
   set "RUN_BACKEND=0"
   set "RUN_FRONTEND=1"
-  shift
-  goto parse_args
+  set "KNOWN=1"
 )
 if "%~1"=="--install" (
   set "INSTALL=1"
-  shift
-  goto parse_args
+  set "KNOWN=1"
 )
 if "%~1"=="-h" goto usage
 if "%~1"=="--help" goto usage
-echo Invalid argument: %~1
-echo Usage: %~nx0 [all^|backend^|frontend] [--install]
-exit /b 2
+if "%KNOWN%"=="0" (
+  echo Invalid argument: %~1
+  echo Usage: %~nx0 [all^|backend^|frontend] [--install]
+  exit /b 2
+)
+shift /1
+goto parse_args
 
 :run_tasks
 if "%RUN_BACKEND%"=="1" (
@@ -46,13 +47,13 @@ if "%RUN_BACKEND%"=="1" (
     exit /b 1
   )
   if "%INSTALL%"=="1" (
-    conda run --no-capture-output -n "%CONDA_ENV%" python -m pip install -r "%ROOT_DIR%\backend\requirements.txt" pytest
+    call conda run --no-capture-output -n "%CONDA_ENV%" python -m pip install -r "%ROOT_DIR%\backend\requirements.txt" pytest
     if errorlevel 1 exit /b 1
   )
   set "PYTHONPATH=%ROOT_DIR%\backend"
-  conda run --no-capture-output -n "%CONDA_ENV%" python -m pytest "%ROOT_DIR%\backend\tests" -q
+  call conda run --no-capture-output -n "%CONDA_ENV%" python -m pytest "%ROOT_DIR%\backend\tests" -q
   if errorlevel 1 exit /b 1
-  conda run --no-capture-output -n "%CONDA_ENV%" python -m compileall -q "%ROOT_DIR%\backend"
+  call conda run --no-capture-output -n "%CONDA_ENV%" python -m compileall -q "%ROOT_DIR%\backend"
   if errorlevel 1 exit /b 1
 )
 
