@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, update
+from sqlalchemy.exc import IntegrityError
 
 from app.api.dependencies import get_db, verify_agent
 from app.models.server import Server, ServerStatusCurr
@@ -86,6 +87,80 @@ def ensure_metric_def(db: Session, metric_code: str):
         created_at=datetime.now(timezone.utc),
     ))
     db.flush()
+
+
+def acquire_replace_set_snapshot(
+    db: Session,
+    *,
+    server_id: int,
+    metric_code: str,
+    collected_at: datetime,
+    received_at: datetime,
+) -> bool:
+    """Atomically acquire the right to replace one metric's current set.
+
+    The conditional UPDATE is the normal compare-and-set path. On Oracle it
+    obtains the row's write lock and reevaluates the timestamp predicate after
+    a competing writer commits; SQLite also evaluates the predicate atomically
+    within its writer transaction. A missing row is initialized in a savepoint
+    so a primary-key collision rolls back only that INSERT, not the enclosing
+    ingestion transaction.
+    """
+    conditional_advance = (
+        update(CheckSnapshotWatermark)
+        .where(
+            CheckSnapshotWatermark.server_id == server_id,
+            CheckSnapshotWatermark.metric_code == metric_code,
+            CheckSnapshotWatermark.collected_at <= collected_at,
+        )
+        .values(collected_at=collected_at, received_at=received_at)
+    )
+
+    while True:
+        # Never delete current rows until this compare-and-set has succeeded.
+        # A conditional UPDATE is also row-locking on databases that support
+        # row-level locks.
+        if db.execute(conditional_advance).rowcount == 1:
+            return True
+
+        # A zero rowcount means either a newer row exists or the row is absent.
+        # Lock an existing row before deciding it is stale, so it cannot advance
+        # between that decision and the later delete.
+        watermark = db.execute(
+            select(CheckSnapshotWatermark)
+            .where(
+                CheckSnapshotWatermark.server_id == server_id,
+                CheckSnapshotWatermark.metric_code == metric_code,
+            )
+            .with_for_update()
+        ).scalar_one_or_none()
+        if watermark is not None:
+            if collected_at < watermark.collected_at:
+                return False
+
+            # Fallback for drivers without a reliable UPDATE rowcount. The row
+            # remains locked through the enclosing transaction, so replacement
+            # is still serialized with concurrent snapshots.
+            watermark.collected_at = collected_at
+            watermark.received_at = received_at
+            return True
+
+        try:
+            # The row was absent when checked. Another transaction can still
+            # initialize it first, so isolate the unique-key failure in a
+            # savepoint and retry the conditional acquisition in that case.
+            with db.begin_nested():
+                db.add(CheckSnapshotWatermark(
+                    server_id=server_id,
+                    metric_code=metric_code,
+                    collected_at=collected_at,
+                    received_at=received_at,
+                ))
+                db.flush()
+            return True
+        except IntegrityError:
+            continue
+
 
 def build_agent_config(agent: Agent, db: Session) -> AgentConfigData:
     items = db.execute(
@@ -454,37 +529,31 @@ def receive_metrics(
         for metric_code in replace_codes:
             snapshot_at = snapshot_at_by_code[metric_code]
             ensure_metric_def(db, metric_code)
-            watermark = db.get(
-                CheckSnapshotWatermark,
-                (agent.server_id, metric_code),
-            )
-            if watermark and snapshot_at < watermark.collected_at:
+            if not acquire_replace_set_snapshot(
+                db,
+                server_id=agent.server_id,
+                metric_code=metric_code,
+                collected_at=snapshot_at,
+                received_at=now,
+            ):
                 stale_replace_codes.add(metric_code)
                 logger.info(
-                    "Rejecting stale %s snapshot for server_id=%d: %s < %s",
+                    "Rejecting stale %s snapshot for server_id=%d at %s",
                     metric_code,
                     agent.server_id,
                     snapshot_at,
-                    watermark.collected_at,
                 )
                 continue
 
+            # Acquiring the watermark first serializes replace-set writers on
+            # databases with row locks. Never delete a current set until the
+            # request has acquired that right.
             db.execute(
                 delete(MetricCurrent).where(
                     MetricCurrent.server_id == agent.server_id,
                     MetricCurrent.metric_code == metric_code,
                 )
             )
-            if watermark is None:
-                db.add(CheckSnapshotWatermark(
-                    server_id=agent.server_id,
-                    metric_code=metric_code,
-                    collected_at=snapshot_at,
-                    received_at=now,
-                ))
-            elif snapshot_at > watermark.collected_at:
-                watermark.collected_at = snapshot_at
-                watermark.received_at = now
 
         accepted_items = [
             item for item in req.items
