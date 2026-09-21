@@ -61,6 +61,34 @@ class AlertPolicy(Base):
     is_active = Column(Integer)
     created_at = Column(Date)              # Oracle DATE
 
+class AlertOutbox(Base):
+    """mon_alert_outbox - 발송 대기열 (ALT-001)"""
+    __tablename__ = "mon_alert_outbox"
+
+    outbox_id = Column(Integer, primary_key=True)
+    event_uid = Column(String(40), nullable=False)
+    policy_id = Column(String(50), nullable=False)
+    target = Column(String(200), nullable=False)
+    title = Column(String(500), nullable=False)
+    message = Column(Text, nullable=False)
+    status = Column(String(30), default='PENDING') # PENDING, PROCESSING
+    retry_count = Column(Integer, default=0)
+    created_at = Column(TIMESTAMP, nullable=False)
+
+class AlertHistory(Base):
+    """mon_alert_hist - 발송 이력 (ALT-001)"""
+    __tablename__ = "mon_alert_hist"
+
+    history_id = Column(Integer, primary_key=True)
+    event_uid = Column(String(40))
+    policy_id = Column(String(50))
+    target = Column(String(200))
+    title = Column(String(500))
+    message = Column(Text)
+    status = Column(String(30)) # SUCCESS, FAILED
+    error_msg = Column(Text)
+    sent_at = Column(TIMESTAMP, nullable=False)
+
 
 class Incident(Base):
     """mon_incident - 장애 인시던트"""

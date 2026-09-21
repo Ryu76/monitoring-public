@@ -21,6 +21,8 @@ class Server(Base):
     importance_code = Column(String(30))   # 공통코드: IMPORTANCE (HIGH, MEDIUM, LOW)
     owner_dept = Column(String(100))
     owner_name = Column(String(100))
+    server_group = Column(String(100))     # OPS-001
+    tags = Column(String(500))             # OPS-001 (comma separated)
     use_yn = Column(CHAR(1), nullable=False, default='Y')
     created_at = Column(TIMESTAMP)
     created_by = Column(String(100))

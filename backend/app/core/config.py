@@ -1,55 +1,75 @@
+from __future__ import annotations
+
 import os
-from pydantic_settings import BaseSettings
+from pathlib import Path
+
 from cryptography.fernet import Fernet
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-def load_encrypted_env(env_path: str = ".env.enc", key_path: str = "env.key") -> dict:
-    if not os.path.exists(env_path) or not os.path.exists(key_path):
+from app.core.dpapi import unprotect_data
+
+
+def load_encrypted_env(env_path: str | None = None, key_path: str | None = None) -> dict[str, str]:
+    """Load DPAPI-protected local development settings without logging values.
+
+    Environment variables supplied by the host remain authoritative.  The encrypted
+    files are optional so ordinary test environments can inject settings directly.
+    """
+    backend_dir = Path(__file__).resolve().parents[2]
+    encrypted_path = Path(env_path) if env_path else backend_dir / ".env.enc"
+    protected_key_path = Path(key_path) if key_path else backend_dir / "env.key.dpapi"
+    if not encrypted_path.is_file() or not protected_key_path.is_file():
         return {}
 
-    with open(key_path, "rb") as kf:
-        key = kf.read()
-    
-    f = Fernet(key)
-    with open(env_path, "rb") as ef:
-        encrypted_data = ef.read()
-    
     try:
-        decrypted_data = f.decrypt(encrypted_data).decode("utf-8")
-    except Exception as e:
-        print("Failed to decrypt env:", e)
+        fernet_key = unprotect_data(protected_key_path.read_bytes())
+        if not fernet_key:
+            return {}
+        decrypted_data = Fernet(fernet_key).decrypt(encrypted_path.read_bytes()).decode("utf-8")
+    except Exception:
         return {}
-        
-    env_vars = {}
+
+    values: dict[str, str] = {}
     for line in decrypted_data.splitlines():
         line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" in line:
-            k, v = line.split("=", 1)
-            env_vars[k.strip()] = v.strip()
-    return env_vars
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip()
+    return values
+
+
+# The process environment wins over optional DPAPI-protected local development files.
+for _key, _value in load_encrypted_env().items():
+    os.environ.setdefault(_key, _value)
+
 
 class Settings(BaseSettings):
-    DB_USER: str = "example_db_user"
-    DB_PASSWORD: str = "CHANGEME"
-    DB_HOST: str = "127.0.0.1"
-    DB_PORT: int = 1521
-    DB_SERVICE_NAME: str = "ORCL"
+    """Required runtime configuration. No database or JWT secret has a source fallback."""
 
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "fallback_secret_key_please_change_in_production")
+    DB_USER: str
+    DB_PASSWORD: str
+    DB_HOST: str
+    DB_PORT: int
+    DB_SERVICE_NAME: str
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 # 24 hours for convenience
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
 
-    class Config:
-        case_sensitive = True
+    model_config = SettingsConfigDict(case_sensitive=True)
 
-# 환경변수 로드
-encrypted_env = load_encrypted_env()
-for key, value in encrypted_env.items():
-    os.environ[key] = value
 
 settings = Settings()
 
-def get_database_url() -> str:
-    # python-oracledb requires the oracle+oracledb format
-    return f"oracle+oracledb://{settings.DB_USER}:{settings.DB_PASSWORD}@{settings.DB_HOST}:{settings.DB_PORT}/?service_name={settings.DB_SERVICE_NAME}"
+
+from sqlalchemy.engine import URL
+
+def get_database_url() -> URL:
+    """Build a structured SQLAlchemy URL so credential delimiters stay data."""
+    return URL.create(
+        drivername="oracle+oracledb",
+        username=settings.DB_USER,
+        password=settings.DB_PASSWORD,
+        host=settings.DB_HOST,
+        port=settings.DB_PORT,
+        query={"service_name": settings.DB_SERVICE_NAME},
+    )

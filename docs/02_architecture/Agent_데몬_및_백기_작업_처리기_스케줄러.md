@@ -10,10 +10,10 @@
 
 ## Proposed Changes
 
-### [MODIFY] [dependencies.py](file:///e:/monitor/backend/app/api/dependencies.py)
+### [MODIFY] [dependencies.py](../../backend/app/api/dependencies.py)
 - 에이전트 자동 승인 정책에 따라 테스트 및 인증 로직 검증 부분을 정렬합니다.
 
-### [MODIFY] [router.py](file:///e:/monitor/backend/app/api/agent/v1/router.py)
+### [MODIFY] [router.py](../../backend/app/api/agent/v1/router.py)
 - `/enroll` API 호출 시 새롭게 등록되거나 갱신되는 `Agent` 레코드의 `status_code`를 `'PENDING'`이 아닌 `'APPROVED'`로 저장하도록 변경합니다.
 - `AgentStatusCurr` 테이블의 초기 상태를 `'NORMAL'`로 인서트합니다.
 
@@ -22,26 +22,26 @@
 ### [NEW] Agent Daemon Component (Phase 1)
 에이전트 데몬을 관리하기 위한 폴더인 `e:\monitor\agent`를 신규 생성하고 아래 구조로 작성합니다.
 
-#### [NEW] [config.py](file:///e:/monitor/agent/config.py)
+#### [NEW] [config.py](../../agent/config.py)
 - 중앙 API 엔드포인트 URL, 수집 주기, 로컬 SQLite 경로, 에이전트 메타데이터 정의.
 
-#### [NEW] [spool.py](file:///e:/monitor/agent/spool.py)
+#### [NEW] [spool.py](../../agent/spool.py)
 - SQLite local queue DB (`spool.db`) 테이블 생성 및 입출력 제어.
 - 네트워크 단절 시 수집된 메트릭을 SQLite에 저장(Buffering)하고, API 접속이 재개되면 Bulk API(`/agent/v1/metrics/bulk`)를 통해 순차 재전송하는 Failover 로직 구현.
 
-#### [NEW] [collectors/base.py](file:///e:/monitor/agent/collectors/base.py)
+#### [NEW] [collectors/base.py](../../agent/collectors/base.py)
 - 공통 수집기 추상 베이스 클래스 정의.
 
-#### [NEW] [collectors/common.py](file:///e:/monitor/agent/collectors/common.py)
+#### [NEW] [collectors/common.py](../../agent/collectors/common.py)
 - `psutil` 기반의 시스템 자원 수집 구현: CPU 사용률 (`CPU_USAGE_PCT`), 가용 메모리 (`MEM_AVAILABLE_BYTES`), 메모리 사용률 (`MEM_USAGE_PCT`), 디스크 가용량 (`DISK_AVAILABLE_BYTES`), 디스크 사용률 (`DISK_USAGE_PCT`) 등.
 
-#### [NEW] [collectors/windows.py](file:///e:/monitor/agent/collectors/windows.py)
+#### [NEW] [collectors/windows.py](../../agent/collectors/windows.py)
 - Windows 서비스 상태 감시 및 이벤트 로그 수집 관련 스텁/윈도우 환경 전용 수집 로직 작성.
 
-#### [NEW] [collectors/linux.py](file:///e:/monitor/agent/collectors/linux.py)
+#### [NEW] [collectors/linux.py](../../agent/collectors/linux.py)
 - Linux 서비스(`systemd`) 수집 관련 스텁 작성.
 
-#### [NEW] [agent.py](file:///e:/monitor/agent/agent.py)
+#### [NEW] [agent.py](../../agent/agent.py)
 - 메인 루프 실행 엔진: 최초 기동 시 `/enroll`을 통해 인증받은 후, 지정된 주기(예: 30초)마다 수집기를 돌려 데이터를 확보하고, 중앙 서버에 Bulk 전송 시도. 실패 시 Spool에 백업.
 
 ---
@@ -49,10 +49,10 @@
 ### [NEW] Backend Worker & Scheduler Component (Phase 2)
 백엔드 연동 비동기 처리 및 주기 배치 처리를 담당하는 서비스를 구현합니다.
 
-#### [NEW] [worker.py](file:///e:/monitor/backend/app/worker.py)
+#### [NEW] [worker.py](../../backend/app/worker.py)
 - **임계치 검사 엔진**: 수집 이력(`mon_metric_hist`) 또는 최신값(`mon_metric_curr`)과 이벤트 룰 정의(`mon_event_rule`)를 비교하여 임계값 초과 시 `mon_event` 테이블에 이벤트를 자동으로 개설(`status_code='OPEN'`)하고, 정상 범위 복귀 시 자동으로 닫기(`status_code='CLOSED'`) 처리를 진행합니다.
 
-#### [NEW] [scheduler.py](file:///e:/monitor/backend/app/scheduler.py)
+#### [NEW] [scheduler.py](../../backend/app/scheduler.py)
 - **Agent 미수신 감지**: `mon_agent_status_curr` 테이블을 검사하여 최종 하트비트 시각이 2분을 경과한 에이전트를 감지해 연결 끊김 이벤트를 생성합니다.
 
 ---

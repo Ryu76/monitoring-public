@@ -3,7 +3,7 @@ from typing import List, Dict, Any
 
 class BaseCollector(ABC):
     """모든 수집기가 상속받아야 하는 기본 클래스"""
-    
+
     @abstractmethod
     def collect(self) -> List[Dict[str, Any]]:
         """

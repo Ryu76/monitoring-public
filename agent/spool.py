@@ -15,58 +15,76 @@ class MetricSpooler:
         self._init_db()
 
     def _init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS metrics_spool (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    payload TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            conn.commit()
+        conn = sqlite3.connect(self.db_path)
+        try:
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS metrics_spool (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        payload TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+        finally:
+            conn.close()
 
     def push(self, metrics: List[Dict[str, Any]]):
         """수집된 지표(dict 리스트)를 스풀에 저장"""
         if not metrics:
             return
-            
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            for metric in metrics:
-                payload = json.dumps(metric)
-                cursor.execute('INSERT INTO metrics_spool (payload) VALUES (?)', (payload,))
-            conn.commit()
-            
-    def pop_batch(self, batch_size: int = 100) -> List[Dict[str, Any]]:
-        """스풀에서 최대 batch_size 만큼 지표를 꺼내옴 (읽은 후 자동 삭제)"""
-        with sqlite3.connect(self.db_path) as conn:
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            with conn:
+                cursor = conn.cursor()
+                for metric in metrics:
+                    payload = json.dumps(metric)
+                    cursor.execute('INSERT INTO metrics_spool (payload) VALUES (?)', (payload,))
+        finally:
+            conn.close()
+
+    def pop_batch(self, batch_size: int = 100) -> tuple[List[int], List[Dict[str, Any]]]:
+        """스풀에서 최대 batch_size 만큼 지표를 꺼내옴"""
+        conn = sqlite3.connect(self.db_path)
+        try:
             cursor = conn.cursor()
             cursor.execute('SELECT id, payload FROM metrics_spool ORDER BY id ASC LIMIT ?', (batch_size,))
             rows = cursor.fetchall()
-            
+
             results = []
-            ids_to_delete = []
+            ids = []
             for row in rows:
                 try:
                     payload = json.loads(row[1])
-                    # payload 내에 _spool_id 등을 넣고 싶지 않으므로 순수 페이로드만 결과에 담음
                     results.append(payload)
-                    ids_to_delete.append(row[0])
+                    ids.append(row[0])
                 except json.JSONDecodeError:
-                    ids_to_delete.append(row[0])
-                    
-            if ids_to_delete:
-                placeholders = ','.join('?' for _ in ids_to_delete)
-                cursor.execute(f'DELETE FROM metrics_spool WHERE id IN ({placeholders})', ids_to_delete)
-                conn.commit()
-                
-            return results
+                    ids.append(row[0])
+
+            return ids, results
+        finally:
+            conn.close()
+
+    def ack_batch(self, ids: List[int]):
+        if not ids:
+            return
+        conn = sqlite3.connect(self.db_path)
+        try:
+            with conn:
+                cursor = conn.cursor()
+                placeholders = ','.join('?' for _ in ids)
+                cursor.execute(f'DELETE FROM metrics_spool WHERE id IN ({placeholders})', ids)
+        finally:
+            conn.close()
 
     def get_count(self) -> int:
         """현재 스풀에 쌓인 지표 수 반환"""
-        with sqlite3.connect(self.db_path) as conn:
+        conn = sqlite3.connect(self.db_path)
+        try:
             cursor = conn.cursor()
             cursor.execute('SELECT COUNT(*) FROM metrics_spool')
             count = cursor.fetchone()[0]
             return count
+        finally:
+            conn.close()

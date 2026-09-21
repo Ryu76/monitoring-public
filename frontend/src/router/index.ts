@@ -1,10 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import Dashboard from '../components/Dashboard.vue'
-import ServerDetail from '../components/ServerDetail.vue'
-import AgentList from '../components/AgentList.vue'
-import EventList from '../components/EventList.vue'
-import IncidentList from '../components/IncidentList.vue'
-import Login from '../components/Login.vue'
+
+const Dashboard = () => import('../components/Dashboard.vue')
+const ServerDetail = () => import('../components/ServerDetail.vue')
+const AgentList = () => import('../components/AgentList.vue')
+const EventList = () => import('../components/EventList.vue')
+const IncidentList = () => import('../components/IncidentList.vue')
+const Login = () => import('../components/Login.vue')
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),

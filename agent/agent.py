@@ -18,12 +18,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import settings
 from spool import MetricSpooler
 from collectors.common import SystemResourceCollector
+from collectors.extension import MockExternalHealthCollector
 
 
 class MonitorAgent:
     def __init__(self):
         self.spooler = MetricSpooler(settings.SPOOL_DB_PATH)
-        self.collectors = [SystemResourceCollector()]
+        self.collectors = [SystemResourceCollector(), MockExternalHealthCollector()]
         self.agent_uid = None
         self.server_uid = None
         self.headers = {"Content-Type": "application/json"}
@@ -155,8 +156,11 @@ class MonitorAgent:
         sequence = 0
 
         while True:
-            batch = self.spooler.pop_batch(settings.METRICS_BATCH_SIZE)
+            ids, batch = self.spooler.pop_batch(settings.METRICS_BATCH_SIZE)
             if not batch:
+                # If there are bad ids but no valid batch items, we still need to ack the bad ones
+                if ids:
+                    self.spooler.ack_batch(ids)
                 break
 
             payload = {
@@ -171,13 +175,12 @@ class MonitorAgent:
                 resp = requests.post(url, json=payload, headers=self.headers, timeout=10)
                 if resp.status_code == 200:
                     logger.info("Successfully flushed %d metrics to server.", len(batch))
+                    self.spooler.ack_batch(ids)
                 else:
                     logger.warning("Failed to flush metrics: %s - %s", resp.status_code, resp.text)
-                    self.spooler.push(batch)
                     break
             except Exception as e:
                 logger.error("Flush connection error: %s", e)
-                self.spooler.push(batch)
                 break
 
     def run(self):

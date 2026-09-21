@@ -4,30 +4,16 @@ from contextlib import asynccontextmanager
 from app.api.agent.v1.router import router as agent_router
 from app.api.web.v1.router import router as web_router
 from app.api.admin.v1.router import router as admin_router
-from app.worker import start_worker
-from app.scheduler import start_scheduler
-from app.alert_worker import start_alert_worker
-from app.aggregator import start_aggregator
-from app.core.database import engine
-from app.db_init import ensure_operational_tables
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s - %(message)s')
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """앱 기동 시 백그라운드 스케줄러를 자동 시작합니다."""
-    try:
-        ensure_operational_tables(engine)
-    except Exception as exc:
-        logging.getLogger(__name__).warning("DB initialization skipped: %s", exc)
-    start_worker()
-    start_scheduler()
-    start_alert_worker()
-    start_aggregator()
-    logging.getLogger(__name__).info("All background workers started.")
+    """API lifecycle only; schema changes are applied by Alembic before deploy."""
+    logging.getLogger(__name__).info("API started. (Workers are separated)")
     yield
-    logging.getLogger(__name__).info("Shutting down background workers.")
+    logging.getLogger(__name__).info("API shutting down.")
 
 app = FastAPI(
     title="통합 서버 모니터링 관제 시스템 API",
@@ -54,3 +40,5 @@ async def health_check():
 app.include_router(agent_router, prefix="/agent/v1", tags=["Agent API"])
 app.include_router(web_router, prefix="/api/v1", tags=["Web API"])
 app.include_router(admin_router, prefix="/api/v1/admin", tags=["Admin API"])
+from app.api.web.v1.extension import router as extension_router
+app.include_router(extension_router, prefix="/api/v1/p3", tags=["P3 Extension API"])

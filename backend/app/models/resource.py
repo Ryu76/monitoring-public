@@ -38,9 +38,7 @@ class MetricHistory(Base):
     """mon_metric_hist - 메트릭 이력 데이터"""
     __tablename__ = "mon_metric_hist"
 
-    # DB에서 metric_hist_id는 nullable이며 PK가 아님.
-    # SQLAlchemy는 PK 필수이므로 __mapper_args__로 처리
-    metric_hist_id = Column(Integer)
+    metric_hist_id = Column(Integer, primary_key=True)
     server_id = Column(Integer, nullable=False)          # FK 제약조건 DB에 없음
     agent_id = Column(Integer)
     metric_code = Column(String(60), nullable=False)
@@ -54,6 +52,28 @@ class MetricHistory(Base):
     received_at = Column(TIMESTAMP, nullable=False)
     batch_uid = Column(String(40))
 
-    __mapper_args__ = {
-        "primary_key": [metric_hist_id]
-    }
+
+class MetricReceiptLedger(Base):
+    """mon_metric_receipt_ledger - 배치 수신 멱등성 검증 원장"""
+    __tablename__ = "mon_metric_receipt_ledger"
+
+    batch_uid = Column(String(40), primary_key=True)
+    agent_id = Column(Integer, ForeignKey("mon_agent.agent_id"), nullable=False)
+    received_at = Column(TIMESTAMP, nullable=False)
+    item_count = Column(Integer, nullable=False)
+
+
+class CheckSnapshotWatermark(Base):
+    """Accepted replace-set snapshot watermark per server and metric code.
+
+    A replace-set is only allowed to delete current rows after this durable
+    watermark check.  It prevents a delayed agent spool replay from replacing
+    a newer process/service/port snapshot.
+    """
+    __tablename__ = "mon_check_snapshot_watermark"
+
+    server_id = Column(Integer, ForeignKey("mon_server.server_id"), primary_key=True)
+    metric_code = Column(String(60), ForeignKey("mon_metric_def.metric_code"), primary_key=True)
+    collected_at = Column(TIMESTAMP, nullable=False)
+    received_at = Column(TIMESTAMP, nullable=False)
+

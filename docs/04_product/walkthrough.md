@@ -95,11 +95,11 @@ e:\monitor\
 ### 구현 내역
 | 파일 | 역할 |
 |---|---|
-| [main.py](file:///e:/monitor/backend/app/main.py) | FastAPI 앱 진입점, 라우터 등록 |
-| [config.py](file:///e:/monitor/backend/app/core/config.py) | Oracle DB 접속 정보, JWT 시크릿, 만료 시간 |
-| [database.py](file:///e:/monitor/backend/app/core/database.py) | SQLAlchemy 엔진 및 세션 팩토리 |
-| [dependencies.py](file:///e:/monitor/backend/app/api/dependencies.py) | `get_db`, `verify_agent` 인증 의존성 |
-| [agent/v1/router.py](file:///e:/monitor/backend/app/api/agent/v1/router.py) | enroll / heartbeat / metrics/bulk / config 엔드포인트 |
+| [main.py](../../backend/app/main.py) | FastAPI 앱 진입점, 라우터 등록 |
+| [config.py](../../backend/app/core/config.py) | Oracle DB 접속 정보, JWT 시크릿, 만료 시간 |
+| [database.py](../../backend/app/core/database.py) | SQLAlchemy 엔진 및 세션 팩토리 |
+| [dependencies.py](../../backend/app/api/dependencies.py) | `get_db`, `verify_agent` 인증 의존성 |
+| [agent/v1/router.py](../../backend/app/api/agent/v1/router.py) | enroll / heartbeat / metrics/bulk / config 엔드포인트 |
 | models/*.py | Server, Agent, MetricCurrent, MetricHistory, Event, SysUser 등 ORM |
 
 ### Agent API 엔드포인트
@@ -124,11 +124,11 @@ Ran 4 tests in 0.691s — OK
 ### 구현 파일
 | 파일 | 역할 |
 |---|---|
-| [agent.py](file:///e:/monitor/agent/agent.py) | 메인 루프: Enroll → Heartbeat(60s) → Collect+Send(30s) |
-| [config.py](file:///e:/monitor/agent/config.py) | API 주소, 수집/하트비트 주기, UID 파일 경로 |
-| [spool.py](file:///e:/monitor/agent/spool.py) | SQLite 기반 로컬 큐잉 (네트워크 단절 시 Failover) |
-| [collectors/base.py](file:///e:/monitor/agent/collectors/base.py) | 추상 수집기 인터페이스 |
-| [collectors/common.py](file:///e:/monitor/agent/collectors/common.py) | `psutil`로 CPU, 메모리, 디스크, 네트워크 수집 |
+| [agent.py](../../agent/agent.py) | 메인 루프: Enroll → Heartbeat(60s) → Collect+Send(30s) |
+| [config.py](../../agent/config.py) | API 주소, 수집/하트비트 주기, UID 파일 경로 |
+| [spool.py](../../agent/spool.py) | SQLite 기반 로컬 큐잉 (네트워크 단절 시 Failover) |
+| [collectors/base.py](../../agent/collectors/base.py) | 추상 수집기 인터페이스 |
+| [collectors/common.py](../../agent/collectors/common.py) | `psutil`로 CPU, 메모리, 디스크, 네트워크 수집 |
 
 ### 동작 흐름
 ```
@@ -147,10 +147,10 @@ Ran 4 tests in 0.691s — OK
 ### 구현 파일
 | 파일 | 주기 | 역할 |
 |---|---|---|
-| [worker.py](file:///e:/monitor/backend/app/worker.py) | 30초 | `mon_event_rule` 임계치 검사 → 이벤트 발생/복구 |
-| [scheduler.py](file:///e:/monitor/backend/app/scheduler.py) | 1분 | Agent 하트비트 미수신(2분 초과) 감지 → OFFLINE 이벤트 |
-| [alert_worker.py](file:///e:/monitor/backend/app/alert_worker.py) | 30초 | `mon_alert_policy` 기반 알림 발송 처리 |
-| [aggregator.py](file:///e:/monitor/backend/app/aggregator.py) | 5분 | `mon_metric_curr` → `mon_metric_hist` 아카이빙 |
+| [worker.py](../../backend/app/worker.py) | 30초 | `mon_event_rule` 임계치 검사 → 이벤트 발생/복구 |
+| [scheduler.py](../../backend/app/scheduler.py) | 1분 | Agent 하트비트 미수신(2분 초과) 감지 → OFFLINE 이벤트 |
+| [alert_worker.py](../../backend/app/alert_worker.py) | 30초 | `mon_alert_policy` 기반 알림 발송 처리 |
+| [aggregator.py](../../backend/app/aggregator.py) | 5분 | `mon_metric_curr` → `mon_metric_hist` 아카이빙 |
 
 ### 이벤트 판정 로직 (worker.py)
 ```
@@ -172,13 +172,13 @@ Ran 4 tests in 0.691s — OK
 ### 구현 파일
 | 파일 | 역할 |
 |---|---|
-| [security.py](file:///e:/monitor/backend/app/core/security.py) | `passlib(bcrypt)` 해싱, `PyJWT` 토큰 생성/검증 |
-| [audit.py](file:///e:/monitor/backend/app/core/audit.py) | `@audit_log` 데코레이터 → `SYS_AUDIT_LOG` 자동 기록 |
-| [schemas/admin.py](file:///e:/monitor/backend/app/schemas/admin.py) | LoginRequest, TokenResponse, UserCreate/Update/Response, CodeResponse |
-| [auth.py](file:///e:/monitor/backend/app/api/admin/v1/auth.py) | `POST /api/v1/admin/auth/login` — JWT 발급 |
-| [users.py](file:///e:/monitor/backend/app/api/admin/v1/users.py) | SysUser Full CRUD (GET list/detail, POST, PUT, DELETE) |
-| [codes.py](file:///e:/monitor/backend/app/api/admin/v1/codes.py) | 공통코드 그룹/상세 조회 |
-| [dependencies.py](file:///e:/monitor/backend/app/api/dependencies.py) | `get_current_user` JWT 의존성 추가 |
+| [security.py](../../backend/app/core/security.py) | `passlib(bcrypt)` 해싱, `PyJWT` 토큰 생성/검증 |
+| [audit.py](../../backend/app/core/audit.py) | `@audit_log` 데코레이터 → `SYS_AUDIT_LOG` 자동 기록 |
+| [schemas/admin.py](../../backend/app/schemas/admin.py) | LoginRequest, TokenResponse, UserCreate/Update/Response, CodeResponse |
+| [auth.py](../../backend/app/api/admin/v1/auth.py) | `POST /api/v1/admin/auth/login` — JWT 발급 |
+| [users.py](../../backend/app/api/admin/v1/users.py) | SysUser Full CRUD (GET list/detail, POST, PUT, DELETE) |
+| [codes.py](../../backend/app/api/admin/v1/codes.py) | 공통코드 그룹/상세 조회 |
+| [dependencies.py](../../backend/app/api/dependencies.py) | `get_current_user` JWT 의존성 추가 |
 
 ### Admin API 엔드포인트
 
@@ -215,11 +215,11 @@ Ran 4 tests in 0.691s — OK
 
 | 화면 | 파일 | 기능 |
 |---|---|---|
-| **로그인** | [Login.vue](file:///e:/monitor/frontend/src/components/Login.vue) | ID/PW → JWT 발급 → localStorage 저장 |
-| **대시보드** | [Dashboard.vue](file:///e:/monitor/frontend/src/components/Dashboard.vue) | KPI 카드(서버수, 에이전트수, 장애건수) + 최근 이벤트 테이블 |
-| **서버 상세** | [ServerDetail.vue](file:///e:/monitor/frontend/src/components/ServerDetail.vue) | 서버 선택 → CPU/MEM Gauge 차트 + Disk Bar 차트 + 전체 지표 테이블 |
-| **에이전트 관리** | [AgentList.vue](file:///e:/monitor/frontend/src/components/AgentList.vue) | 에이전트 목록 + Approve/Revoke 버튼 (실제 PUT API 호출) |
-| **이벤트 관리** | [EventList.vue](file:///e:/monitor/frontend/src/components/EventList.vue) | OPEN/CLOSED/ALL 필터 + ACK(확인처리) 버튼 |
+| **로그인** | [Login.vue](../../frontend/src/components/Login.vue) | ID/PW → JWT 발급 → localStorage 저장 |
+| **대시보드** | [Dashboard.vue](../../frontend/src/components/Dashboard.vue) | KPI 카드(서버수, 에이전트수, 장애건수) + 최근 이벤트 테이블 |
+| **서버 상세** | [ServerDetail.vue](../../frontend/src/components/ServerDetail.vue) | 서버 선택 → CPU/MEM Gauge 차트 + Disk Bar 차트 + 전체 지표 테이블 |
+| **에이전트 관리** | [AgentList.vue](../../frontend/src/components/AgentList.vue) | 에이전트 목록 + Approve/Revoke 버튼 (실제 PUT API 호출) |
+| **이벤트 관리** | [EventList.vue](../../frontend/src/components/EventList.vue) | OPEN/CLOSED/ALL 필터 + ACK(확인처리) 버튼 |
 
 ### 라우팅 구조
 ```
@@ -239,9 +239,9 @@ Phase 4에서 만든 프론트엔드 컴포넌트들이 하드코딩 상태였�
 ### 백엔드 보강
 | 변경 | 설명 |
 |---|---|
-| [main.py](file:///e:/monitor/backend/app/main.py) | CORS 미들웨어 추가 + `lifespan`으로 4개 워커 자동 구동 |
-| [web/v1/router.py](file:///e:/monitor/backend/app/api/web/v1/router.py) | 통합 Web API 전면 재작성 (dashboard/servers/agents/events) |
-| [requirements.txt](file:///e:/monitor/backend/requirements.txt) | PyJWT, passlib, bcrypt, APScheduler 추가 |
+| [main.py](../../backend/app/main.py) | CORS 미들웨어 추가 + `lifespan`으로 4개 워커 자동 구동 |
+| [web/v1/router.py](../../backend/app/api/web/v1/router.py) | 통합 Web API 전면 재작성 (dashboard/servers/agents/events) |
+| [requirements.txt](../../backend/requirements.txt) | PyJWT, passlib, bcrypt, APScheduler 추가 |
 
 ### Web API 엔드포인트 (신규/재작성)
 
@@ -259,11 +259,11 @@ Phase 4에서 만든 프론트엔드 컴포넌트들이 하드코딩 상태였�
 ### 프론트엔드 보강
 | 변경 | 설명 |
 |---|---|
-| [api.ts](file:///e:/monitor/frontend/src/api.ts) | Axios 클라이언트 + JWT 자동 첨부 인터셉터 + 401 자동 로그아웃 |
-| [vite.config.ts](file:///e:/monitor/frontend/vite.config.ts) | `/api`, `/agent`, `/health` 프록시 설정 |
-| [index.html](file:///e:/monitor/frontend/index.html) | SEO 메타 태그 + Google Fonts (Inter) |
-| [App.vue](file:///e:/monitor/frontend/src/App.vue) | 로그인 화면 레이아웃 분리 + 사용자 정보 표시 + 로그아웃 + Events 메뉴 추가 |
-| [router/index.ts](file:///e:/monitor/frontend/src/router/index.ts) | Login/Events 경로 추가 + `beforeEach` 인증 Guard |
+| [api.ts](../../frontend/src/api.ts) | Axios 클라이언트 + JWT 자동 첨부 인터셉터 + 401 자동 로그아웃 |
+| [vite.config.ts](../../frontend/vite.config.ts) | `/api`, `/agent`, `/health` 프록시 설정 |
+| [index.html](../../frontend/index.html) | SEO 메타 태그 + Google Fonts (Inter) |
+| [App.vue](../../frontend/src/App.vue) | 로그인 화면 레이아웃 분리 + 사용자 정보 표시 + 로그아웃 + Events 메뉴 추가 |
+| [router/index.ts](../../frontend/src/router/index.ts) | Login/Events 경로 추가 + `beforeEach` 인증 Guard |
 | 모든 .vue 컴포넌트 | 하드코딩 → `api.get/put` 실제 API 호출로 전면 교체 |
 
 ### 빌드 검증
@@ -310,16 +310,16 @@ python e:\monitor\backend\seed_admin.py
 마지막 세션을 통해 사용자 편의성과 운영 환경을 고려한 마무리 작업이 적용되었습니다.
 
 ### 1. 보안 및 배포 강화
-* **[seed_admin.py](file:///e:/monitor/backend/seed_admin.py)**: 최초 관리자를 안전하게 생성하는 시딩 스크립트를 구현했습니다.
-* **[config.py](file:///e:/monitor/backend/app/core/config.py)**: `SECRET_KEY`를 하드코딩에서 분리하여 환경변수 기반으로 로드하도록 변경했습니다.
-* **[docker-compose.yml](file:///e:/monitor/docker-compose.yml)**: Database(Oracle), Backend(FastAPI), Frontend(Vue)를 한 번에 기동할 수 있는 컨테이너 배포 스크립트를 구성했습니다.
+* **[seed_admin.py](../../backend/seed_admin.py)**: 최초 관리자를 안전하게 생성하는 시딩 스크립트를 구현했습니다.
+* **[config.py](../../backend/app/core/config.py)**: `SECRET_KEY`를 하드코딩에서 분리하여 환경변수 기반으로 로드하도록 변경했습니다.
+* **[docker-compose.yml](../../docker-compose.yml)**: Database(Oracle), Backend(FastAPI), Frontend(Vue)를 한 번에 기동할 수 있는 컨테이너 배포 스크립트를 구성했습니다.
 
 ### 2. UI/UX 테마 및 확장
 * **다크/라이트 모드 토글**: `style.css`에 라이트 모드용 CSS 변수를 추가하고, `App.vue` 하단에 상태(localStorage 연동) 기반의 테마 전환 버튼(🌞 / 🌙)을 구현했습니다.
 * **인시던트 UI**: `IncidentList.vue`를 작성하고 `/incidents` 라우팅을 추가하여, `MON_INCIDENT` 테이블 기반의 장애 조치 이력을 추적할 수 있도록 뷰를 신설했습니다.
 
 ### 3. 알림 채널 연동 (Notifier)
-* **[notifier.py](file:///e:/monitor/backend/app/core/notifier.py)**: 향후 실제 채널 연동을 위해 Email, SMS, Slack Webhook 통신 인터페이스를 담당하는 래퍼(Wrapper) 모듈을 작성했습니다.
+* **[notifier.py](../../backend/app/core/notifier.py)**: 향후 실제 채널 연동을 위해 Email, SMS, Slack Webhook 통신 인터페이스를 담당하는 래퍼(Wrapper) 모듈을 작성했습니다.
 * **alert_worker.py 연동**: 30초 주기의 임계치 알림 워커가 `Notifier.dispatch()`를 호출하여 이벤트 발생 시 설정된 채널로 발송하도록 로직을 치환했습니다.
 
 ---

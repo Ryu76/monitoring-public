@@ -6,12 +6,19 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func, delete, text
+from sqlalchemy import select, delete, update
+from sqlalchemy.exc import IntegrityError
 
 from app.api.dependencies import get_db, verify_agent
 from app.models.server import Server, ServerStatusCurr
 from app.models.agent import Agent, AgentHeartbeatHist, AgentStatusCurr
-from app.models.resource import MetricCurrent, MetricHistory, MetricDef
+from app.models.resource import (
+    CheckSnapshotWatermark,
+    MetricCurrent,
+    MetricHistory,
+    MetricDef,
+    MetricReceiptLedger,
+)
 from app.models.process import CheckTarget, CheckResultHistory
 from app.schemas.agent import (
     AgentEnrollRequest, AgentEnrollResponse,
@@ -25,12 +32,24 @@ router = APIRouter()
 
 METRIC_DEFINITIONS = {
     "CPU_USAGE_PCT": ("CPU Usage (%)", "CPU", "FLOAT", "PERCENT", "AVG"),
+    "CPU_CORE_PCT": ("CPU Core Usage (%)", "CPU", "FLOAT", "PERCENT", "AVG"),
+    "CPU_LOAD_1M": ("CPU Load 1M", "CPU", "FLOAT", "COUNT", "AVG"),
+    "CPU_LOAD_5M": ("CPU Load 5M", "CPU", "FLOAT", "COUNT", "AVG"),
+    "CPU_LOAD_15M": ("CPU Load 15M", "CPU", "FLOAT", "COUNT", "AVG"),
     "MEM_USAGE_PCT": ("Memory Usage (%)", "MEMORY", "FLOAT", "PERCENT", "AVG"),
     "MEM_AVAILABLE_BYTES": ("Memory Available (Bytes)", "MEMORY", "BIGINT", "BYTES", "AVG"),
+    "SWAP_USAGE_PCT": ("Swap Usage (%)", "MEMORY", "FLOAT", "PERCENT", "AVG"),
+    "SWAP_AVAILABLE_BYTES": ("Swap Available (Bytes)", "MEMORY", "BIGINT", "BYTES", "AVG"),
     "DISK_USAGE_PCT": ("Disk Usage (%)", "DISK", "FLOAT", "PERCENT", "AVG"),
     "DISK_AVAILABLE_BYTES": ("Disk Available (Bytes)", "DISK", "BIGINT", "BYTES", "AVG"),
+    "DISK_IO_READ_BYTES": ("Disk IO Read Bytes", "DISK", "BIGINT", "BYTES", "SUM"),
+    "DISK_IO_WRITE_BYTES": ("Disk IO Write Bytes", "DISK", "BIGINT", "BYTES", "SUM"),
+    "DISK_IO_READ_TIME": ("Disk IO Read Time", "DISK", "FLOAT", "MILLISECONDS", "SUM"),
+    "DISK_IO_WRITE_TIME": ("Disk IO Write Time", "DISK", "FLOAT", "MILLISECONDS", "SUM"),
     "NET_BYTES_SENT": ("Network Bytes Sent", "NETWORK", "BIGINT", "BYTES", "SUM"),
     "NET_BYTES_RECV": ("Network Bytes Received", "NETWORK", "BIGINT", "BYTES", "SUM"),
+    "NET_BYTES_SENT_RATE": ("Network Bytes Sent Rate", "NETWORK", "BIGINT", "BYTES", "SUM"),
+    "NET_BYTES_RECV_RATE": ("Network Bytes Received Rate", "NETWORK", "BIGINT", "BYTES", "SUM"),
     "PROCESS_CPU_PCT": ("Top Process CPU Usage (%)", "PROCESS", "FLOAT", "PERCENT", "AVG"),
     "PROCESS_MEM_PCT": ("Top Process Memory Usage (%)", "PROCESS", "FLOAT", "PERCENT", "AVG"),
     "PROCESS_STATUS": ("Process Running Status", "PROCESS", "FLOAT", "BOOLEAN", "LAST"),
@@ -70,54 +89,80 @@ def ensure_metric_def(db: Session, metric_code: str):
     db.flush()
 
 
-def ensure_check_target_table(db: Session):
-    try:
-        db.execute(text("SELECT 1 FROM mon_check_target WHERE 1 = 0"))
-    except Exception:
-        db.rollback()
-        db.execute(text("""
-            CREATE TABLE mon_check_target (
-                check_target_id NUMBER NOT NULL PRIMARY KEY,
-                server_id NUMBER NOT NULL,
-                target_type_code VARCHAR2(30) NOT NULL,
-                target_name VARCHAR2(200) NOT NULL,
-                use_yn CHAR(1) DEFAULT 'Y' NOT NULL,
-                created_at TIMESTAMP,
-                updated_at TIMESTAMP
+def acquire_replace_set_snapshot(
+    db: Session,
+    *,
+    server_id: int,
+    metric_code: str,
+    collected_at: datetime,
+    received_at: datetime,
+) -> bool:
+    """Atomically acquire the right to replace one metric's current set.
+
+    The conditional UPDATE is the normal compare-and-set path. On Oracle it
+    obtains the row's write lock and reevaluates the timestamp predicate after
+    a competing writer commits; SQLite also evaluates the predicate atomically
+    within its writer transaction. A missing row is initialized in a savepoint
+    so a primary-key collision rolls back only that INSERT, not the enclosing
+    ingestion transaction.
+    """
+    conditional_advance = (
+        update(CheckSnapshotWatermark)
+        .where(
+            CheckSnapshotWatermark.server_id == server_id,
+            CheckSnapshotWatermark.metric_code == metric_code,
+            CheckSnapshotWatermark.collected_at <= collected_at,
+        )
+        .values(collected_at=collected_at, received_at=received_at)
+    )
+
+    while True:
+        # Never delete current rows until this compare-and-set has succeeded.
+        # A conditional UPDATE is also row-locking on databases that support
+        # row-level locks.
+        if db.execute(conditional_advance).rowcount == 1:
+            return True
+
+        # A zero rowcount means either a newer row exists or the row is absent.
+        # Lock an existing row before deciding it is stale, so it cannot advance
+        # between that decision and the later delete.
+        watermark = db.execute(
+            select(CheckSnapshotWatermark)
+            .where(
+                CheckSnapshotWatermark.server_id == server_id,
+                CheckSnapshotWatermark.metric_code == metric_code,
             )
-        """))
-        db.commit()
+            .with_for_update()
+        ).scalar_one_or_none()
+        if watermark is not None:
+            if collected_at < watermark.collected_at:
+                return False
 
+            # Fallback for drivers without a reliable UPDATE rowcount. The row
+            # remains locked through the enclosing transaction, so replacement
+            # is still serialized with concurrent snapshots.
+            watermark.collected_at = collected_at
+            watermark.received_at = received_at
+            return True
 
-def ensure_check_result_hist_table(db: Session):
-    try:
-        db.execute(text("SELECT 1 FROM mon_check_result_hist WHERE 1 = 0"))
-    except Exception:
-        db.rollback()
-        db.execute(text("""
-            CREATE TABLE mon_check_result_hist (
-                check_result_id NUMBER NOT NULL PRIMARY KEY,
-                server_id NUMBER NOT NULL,
-                agent_id NUMBER,
-                target_type_code VARCHAR2(30) NOT NULL,
-                target_name VARCHAR2(200) NOT NULL,
-                metric_code VARCHAR2(60) NOT NULL,
-                metric_value NUMBER,
-                string_value VARCHAR2(1000),
-                status_code VARCHAR2(30),
-                collected_at TIMESTAMP NOT NULL,
-                received_at TIMESTAMP NOT NULL
-            )
-        """))
-        db.commit()
-
-
-def next_check_result_id(db: Session) -> int:
-    return (db.execute(select(func.max(CheckResultHistory.check_result_id))).scalar() or 0) + 1
+        try:
+            # The row was absent when checked. Another transaction can still
+            # initialize it first, so isolate the unique-key failure in a
+            # savepoint and retry the conditional acquisition in that case.
+            with db.begin_nested():
+                db.add(CheckSnapshotWatermark(
+                    server_id=server_id,
+                    metric_code=metric_code,
+                    collected_at=collected_at,
+                    received_at=received_at,
+                ))
+                db.flush()
+            return True
+        except IntegrityError:
+            continue
 
 
 def build_agent_config(agent: Agent, db: Session) -> AgentConfigData:
-    ensure_check_target_table(db)
     items = db.execute(
         select(CheckTarget)
         .where(CheckTarget.server_id == agent.server_id, CheckTarget.use_yn == "Y")
@@ -194,7 +239,7 @@ def enroll_agent(
                 existing_agent.started_at = now
                 existing_agent.last_connected_at = now
                 existing_agent.updated_at = now
-                
+
                 agent_id = existing_agent.agent_id
             else:
                 # 신규 에이전트 생성 후 기존 서버와 연결 (자동 승인 상태 'APPROVED')
@@ -433,17 +478,30 @@ def receive_metrics(
     """
     now = datetime.now(timezone.utc)
     received_count = 0
-    
+
+
+    existing_ledger = db.execute(
+        select(MetricReceiptLedger).where(MetricReceiptLedger.batch_uid == req.batch_uid)
+    ).scalar_one_or_none()
+
+    if existing_ledger:
+        return MetricBulkResponse(
+            success=True,
+            code="OK",
+            message=f"배치({req.batch_uid})가 이미 처리되었습니다.",
+            received_count=existing_ledger.item_count,
+        )
+
     # 배치 내 중복 제거 (같은 collected_at 시점의 메트릭은 하나만 유지)
     try:
         seen = {}
         for item in req.items:
-            key = (item.metric_code, item.dimension_key or "-", item.dimension_value or "-")
+            key = (item.metric_code, item.dimension_key or "-", item.dimension_value or "-", item.collected_at)
             previous = seen.get(key)
             if previous is None or item.collected_at >= previous.collected_at:
                 seen[key] = item
         unique_items = list(seen.values())
-        
+
         if len(unique_items) < len(req.items):
             logger.warning(
                 "Removed %d duplicate metrics from batch (total: %d -> %d)",
@@ -454,14 +512,42 @@ def receive_metrics(
         logger.warning("Deduplication failed: %s, continuing with all items", str(e))
 
     try:
-        next_result_id = None
-        if any(item.metric_code in CHECK_RESULT_METRICS for item in req.items):
-            ensure_check_result_hist_table(db)
-            next_result_id = next_check_result_id(db)
-
-        replace_codes = {item.metric_code for item in req.items if item.metric_code in REPLACE_SET_METRICS}
+        # PROCESS/SERVICE/PORT values are snapshots, not independent current
+        # observations. A durable per-metric watermark must be checked before
+        # delete-and-replace so a delayed spool replay cannot erase new rows.
+        stale_replace_codes: set[str] = set()
+        replace_codes = {
+            item.metric_code for item in req.items
+            if item.metric_code in REPLACE_SET_METRICS
+        }
+        snapshot_at_by_code = {
+            metric_code: max(
+                item.collected_at for item in req.items if item.metric_code == metric_code
+            )
+            for metric_code in replace_codes
+        }
         for metric_code in replace_codes:
+            snapshot_at = snapshot_at_by_code[metric_code]
             ensure_metric_def(db, metric_code)
+            if not acquire_replace_set_snapshot(
+                db,
+                server_id=agent.server_id,
+                metric_code=metric_code,
+                collected_at=snapshot_at,
+                received_at=now,
+            ):
+                stale_replace_codes.add(metric_code)
+                logger.info(
+                    "Rejecting stale %s snapshot for server_id=%d at %s",
+                    metric_code,
+                    agent.server_id,
+                    snapshot_at,
+                )
+                continue
+
+            # Acquiring the watermark first serializes replace-set writers on
+            # databases with row locks. Never delete a current set until the
+            # request has acquired that right.
             db.execute(
                 delete(MetricCurrent).where(
                     MetricCurrent.server_id == agent.server_id,
@@ -469,27 +555,43 @@ def receive_metrics(
                 )
             )
 
-        for item in req.items:
+        accepted_items = [
+            item for item in req.items
+            if item.metric_code not in stale_replace_codes
+        ]
+        # Session autoflush may be disabled (as it is in the ingestion tests),
+        # so retain each current row seen in this batch instead of issuing a
+        # second SELECT that cannot see a pending INSERT.  This preserves every
+        # history row while one current row receives the latest observation.
+        current_by_key: dict[tuple[int, str, str, str], MetricCurrent] = {}
+        for item in accepted_items:
             dim_key = item.dimension_key or "-"
             dim_value = item.dimension_value or "-"
             ensure_metric_def(db, item.metric_code)
+            current_key = (agent.server_id, item.metric_code, dim_key, dim_value)
 
             # 1) mon_metric_curr UPSERT (복합 PK: server_id + metric_code + dim_key + dim_value)
-            existing = db.execute(
-                select(MetricCurrent).where(
-                    MetricCurrent.server_id == agent.server_id,
-                    MetricCurrent.metric_code == item.metric_code,
-                    MetricCurrent.dimension_key == dim_key,
-                    MetricCurrent.dimension_value == dim_value,
-                )
-            ).scalar_one_or_none()
+            existing = current_by_key.get(current_key)
+            if existing is None:
+                existing = db.execute(
+                    select(MetricCurrent).where(
+                        MetricCurrent.server_id == agent.server_id,
+                        MetricCurrent.metric_code == item.metric_code,
+                        MetricCurrent.dimension_key == dim_key,
+                        MetricCurrent.dimension_value == dim_value,
+                    )
+                ).scalar_one_or_none()
 
             if existing:
-                existing.metric_value = item.metric_value
-                existing.string_value = item.string_value
-                existing.status_code = item.status_code
-                existing.collected_at = item.collected_at
-                existing.received_at = now
+                if item.collected_at >= existing.collected_at:
+                    existing.metric_value = item.metric_value
+                    existing.string_value = item.string_value
+                    existing.status_code = item.status_code
+                    existing.collected_at = item.collected_at
+                    existing.received_at = now
+                else:
+                    # ING-002: 과거 metric이 current 역전 안 함
+                    pass
             else:
                 new_curr = MetricCurrent(
                     server_id=agent.server_id,
@@ -503,6 +605,7 @@ def receive_metrics(
                     received_at=now,
                 )
                 db.add(new_curr)
+                current_by_key[current_key] = new_curr
 
             # 2) mon_metric_hist INSERT
             hist = MetricHistory(
@@ -519,13 +622,10 @@ def receive_metrics(
                 received_at=now,
                 batch_uid=req.batch_uid,
             )
-            # History partition maintenance is separate from live metric display.
-            # ORA-14400 on mon_metric_hist must not roll back mon_metric_curr.
-            # TODO: re-enable after creating the required history partitions.
-            # db.add(hist)
+            db.add(hist)
+
             if item.metric_code in CHECK_RESULT_METRICS:
                 db.add(CheckResultHistory(
-                    check_result_id=next_result_id,
                     server_id=agent.server_id,
                     agent_id=agent.agent_id,
                     target_type_code=CHECK_RESULT_METRICS[item.metric_code],
@@ -537,8 +637,18 @@ def receive_metrics(
                     collected_at=item.collected_at,
                     received_at=now,
                 ))
-                next_result_id += 1
             received_count += 1
+
+        # Make history/check-result insertion fail before an ACK is even added.
+        # Commit below is one transaction, so receipt, watermark, current, and
+        # history state either persist together or are all rolled back.
+        db.flush()
+        db.add(MetricReceiptLedger(
+            batch_uid=req.batch_uid,
+            agent_id=agent.agent_id,
+            received_at=now,
+            item_count=received_count
+        ))
 
         # Agent 마지막 접속 시각 갱신
         agent.last_connected_at = now

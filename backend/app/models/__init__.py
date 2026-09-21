@@ -9,3 +9,4 @@ from .resource import *
 from .process import *
 from .event import *
 from .system import *
+from .extension import *

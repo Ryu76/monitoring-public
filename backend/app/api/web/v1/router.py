@@ -5,14 +5,15 @@ from sqlalchemy import select, func, and_, delete, text
 from typing import List, Optional
 from datetime import datetime, timezone
 
-from app.api.dependencies import get_db
+from app.api.dependencies import get_db, get_current_user, require_roles
 from app.models.server import Server, ServerStatusCurr
 from app.models.agent import Agent, AgentStatusCurr
 from app.models.event import Event, Incident, IncidentAction
 from app.models.resource import MetricCurrent
 from app.models.process import CheckTarget, CheckResultHistory
+from app.domain.check_targets import normalize_names, normalize_ports, check_targets_to_dict
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 class IncidentCreateFromEventRequest(BaseModel):
@@ -47,10 +48,11 @@ class ServerCheckTargetsRequest(BaseModel):
 
 class ServerUpdateRequest(BaseModel):
     server_name: str = Field(..., min_length=1, max_length=100)
+    server_group: Optional[str] = Field(None, max_length=100)
+    tags: Optional[str] = Field(None, max_length=500)
 
 
-def next_numeric_id(db: Session, column) -> int:
-    return (db.execute(select(func.max(column))).scalar() or 0) + 1
+
 
 
 def incident_to_dict(inc: Incident, actions: Optional[List[IncidentAction]] = None):
@@ -83,95 +85,6 @@ def provided_fields(model: BaseModel) -> set[str]:
     return getattr(model, "model_fields_set", getattr(model, "__fields_set__", set()))
 
 
-def ensure_check_target_table(db: Session):
-    try:
-        db.execute(text("SELECT 1 FROM mon_check_target WHERE 1 = 0"))
-    except Exception:
-        db.rollback()
-        db.execute(text("""
-            CREATE TABLE mon_check_target (
-                check_target_id NUMBER NOT NULL PRIMARY KEY,
-                server_id NUMBER NOT NULL,
-                target_type_code VARCHAR2(30) NOT NULL,
-                target_name VARCHAR2(200) NOT NULL,
-                use_yn CHAR(1) DEFAULT 'Y' NOT NULL,
-                created_at TIMESTAMP,
-                updated_at TIMESTAMP
-            )
-        """))
-        db.commit()
-
-
-def ensure_check_result_hist_table(db: Session):
-    try:
-        db.execute(text("SELECT 1 FROM mon_check_result_hist WHERE 1 = 0"))
-    except Exception:
-        db.rollback()
-        db.execute(text("""
-            CREATE TABLE mon_check_result_hist (
-                check_result_id NUMBER NOT NULL PRIMARY KEY,
-                server_id NUMBER NOT NULL,
-                agent_id NUMBER,
-                target_type_code VARCHAR2(30) NOT NULL,
-                target_name VARCHAR2(200) NOT NULL,
-                metric_code VARCHAR2(60) NOT NULL,
-                metric_value NUMBER,
-                string_value VARCHAR2(1000),
-                status_code VARCHAR2(30),
-                collected_at TIMESTAMP NOT NULL,
-                received_at TIMESTAMP NOT NULL
-            )
-        """))
-        db.commit()
-
-
-def normalize_names(values: List[str]) -> List[str]:
-    result = []
-    seen = set()
-    for value in values or []:
-        normalized = str(value).strip()
-        key = normalized.lower()
-        if normalized and key not in seen:
-            seen.add(key)
-            result.append(normalized)
-    return result
-
-
-def normalize_ports(values: List[int]) -> List[str]:
-    result = []
-    seen = set()
-    for value in values or []:
-        try:
-            port = int(value)
-        except (TypeError, ValueError):
-            continue
-        if 1 <= port <= 65535 and port not in seen:
-            seen.add(port)
-            result.append(str(port))
-    return result
-
-
-def check_targets_to_dict(items: List[CheckTarget]):
-    processes = [i.target_name for i in items if i.target_type_code == "PROCESS"]
-    services = [i.target_name for i in items if i.target_type_code == "SERVICE"]
-    ports = [int(i.target_name) for i in items if i.target_type_code == "PORT" and str(i.target_name).isdigit()]
-    return {
-        "processes": processes,
-        "services": services,
-        "ports": ports,
-        "items": [
-            {
-                "check_target_id": i.check_target_id,
-                "server_id": i.server_id,
-                "target_type_code": i.target_type_code,
-                "target_name": i.target_name,
-                "use_yn": i.use_yn,
-                "created_at": i.created_at.isoformat() if i.created_at else None,
-                "updated_at": i.updated_at.isoformat() if i.updated_at else None,
-            }
-            for i in items
-        ],
-    }
 
 # ──────────────────────── Dashboard ────────────────────────
 
@@ -208,9 +121,20 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
 # ──────────────────────── Servers ────────────────────────
 
 @router.get("/servers")
-def get_servers(db: Session = Depends(get_db)):
-    """서버 목록 + 종합 상태"""
-    servers = db.execute(select(Server).where(Server.use_yn == 'Y')).scalars().all()
+def get_servers(
+    server_group: Optional[str] = None,
+    tags: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """서버 목록 + 종합 상태 (그룹/태그 필터링 지원)"""
+    stmt = select(Server).where(Server.use_yn == 'Y')
+    if server_group:
+        stmt = stmt.where(Server.server_group == server_group)
+    if tags:
+        # Simple LIKE filter for comma-separated tags (dev-safe adapter)
+        stmt = stmt.where(Server.tags.like(f"%{tags}%"))
+
+    servers = db.execute(stmt).scalars().all()
     result = []
     for s in servers:
         status = db.execute(
@@ -223,6 +147,8 @@ def get_servers(db: Session = Depends(get_db)):
             "host_name": s.host_name,
             "mgmt_ip": s.mgmt_ip,
             "os_type_code": s.os_type_code,
+            "server_group": s.server_group,
+            "tags": s.tags,
             "composite_status": status.composite_status if status else "UNKNOWN",
         })
     return {"success": True, "data": result}
@@ -273,6 +199,8 @@ def get_server_detail(server_id: int, db: Session = Depends(get_db)):
             "os_type_code": server.os_type_code,
             "os_name": server.os_name,
             "os_version": server.os_version,
+            "server_group": server.server_group,
+            "tags": server.tags,
             "agent_id": agent.agent_id if agent else None,
             "agent_status": agent_status.agent_status if agent_status else "UNKNOWN",
             "last_heartbeat_at": agent_status.last_heartbeat_at.isoformat() if agent_status and agent_status.last_heartbeat_at else None,
@@ -282,16 +210,53 @@ def get_server_detail(server_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.put("/servers/{server_id}")
-def update_server(server_id: int, req: ServerUpdateRequest, db: Session = Depends(get_db)):
+from fastapi import Request
+from app.core.audit import log_audit, get_client_ip
+from app.models.system import SysUser
+
+@router.put("/servers/{server_id}", dependencies=[Depends(require_roles(["ADMIN", "OPERATOR"]))])
+def update_server(
+    server_id: int,
+    req: ServerUpdateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: SysUser = Depends(get_current_user)
+):
     server = db.execute(select(Server).where(Server.server_id == server_id)).scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
 
+    before_data = {
+        "server_name": server.server_name,
+        "server_group": server.server_group,
+        "tags": server.tags
+    }
     server.server_name = req.server_name.strip()
+    if "server_group" in provided_fields(req):
+        server.server_group = req.server_group
+    if "tags" in provided_fields(req):
+        server.tags = req.tags
     server.updated_at = datetime.now(timezone.utc)
-    server.updated_by = "WEB"
+    server.updated_by = current_user.login_id
+    after_data = {
+        "server_name": server.server_name,
+        "server_group": server.server_group,
+        "tags": server.tags
+    }
+
+    log_audit(
+        db=db,
+        user_id=current_user.user_id,
+        action_type="UPDATE",
+        target_entity="Server",
+        target_id=str(server.server_id),
+        before_data=before_data,
+        after_data=after_data,
+        ip_address=get_client_ip(request)
+    )
+
     db.commit()
+
     return {
         "success": True,
         "data": {
@@ -301,13 +266,15 @@ def update_server(server_id: int, req: ServerUpdateRequest, db: Session = Depend
             "host_name": server.host_name,
             "mgmt_ip": server.mgmt_ip,
             "os_type_code": server.os_type_code,
+            "server_group": server.server_group,
+            "tags": server.tags
         },
     }
 
 
 @router.get("/servers/{server_id}/check-targets")
 def get_server_check_targets(server_id: int, db: Session = Depends(get_db)):
-    ensure_check_target_table(db)
+    pass
     server = db.execute(select(Server).where(Server.server_id == server_id)).scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
@@ -320,13 +287,13 @@ def get_server_check_targets(server_id: int, db: Session = Depends(get_db)):
     return {"success": True, "data": check_targets_to_dict(items)}
 
 
-@router.put("/servers/{server_id}/check-targets")
+@router.put("/servers/{server_id}/check-targets", dependencies=[Depends(require_roles(["ADMIN", "OPERATOR"]))])
 def update_server_check_targets(
     server_id: int,
     req: ServerCheckTargetsRequest,
     db: Session = Depends(get_db),
 ):
-    ensure_check_target_table(db)
+    pass
     server = db.execute(select(Server).where(Server.server_id == server_id)).scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
@@ -334,7 +301,6 @@ def update_server_check_targets(
     now = datetime.now(timezone.utc)
     db.execute(delete(CheckTarget).where(CheckTarget.server_id == server_id))
 
-    next_id = next_numeric_id(db, CheckTarget.check_target_id)
     rows = []
     for target_type, values in (
         ("PROCESS", normalize_names(req.processes)),
@@ -343,7 +309,6 @@ def update_server_check_targets(
     ):
         for target_name in values:
             rows.append(CheckTarget(
-                check_target_id=next_id,
                 server_id=server_id,
                 target_type_code=target_type,
                 target_name=target_name,
@@ -351,7 +316,6 @@ def update_server_check_targets(
                 created_at=now,
                 updated_at=now,
             ))
-            next_id += 1
 
     db.add_all(rows)
     db.commit()
@@ -372,7 +336,7 @@ def get_server_check_history(
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
-    ensure_check_result_hist_table(db)
+    pass
     server = db.execute(select(Server).where(Server.server_id == server_id)).scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
@@ -407,6 +371,63 @@ def get_server_check_history(
         ],
     }
 
+@router.get("/servers/{server_id}/metrics/{metric_code}/history")
+def get_server_metric_history(
+    server_id: int,
+    metric_code: str,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+    dimension_key: str = "-",
+    dimension_value: str = "-",
+    limit: int = 1000,
+    db: Session = Depends(get_db)
+):
+    from app.models.resource import MetricHistory
+
+    # Range limit
+    if not end_time:
+        end_time = datetime.now(timezone.utc)
+    if not start_time:
+        from datetime import timedelta
+        start_time = end_time - timedelta(days=7)
+
+    if (end_time - start_time).days > 30:
+        raise HTTPException(status_code=400, detail="Range cannot exceed 30 days")
+
+    limit = max(1, min(limit, 5000))
+
+    stmt = (
+        select(MetricHistory)
+        .where(
+            MetricHistory.server_id == server_id,
+            MetricHistory.metric_code == metric_code,
+            MetricHistory.dimension_key == dimension_key,
+            MetricHistory.dimension_value == dimension_value,
+            MetricHistory.collected_at >= start_time,
+            MetricHistory.collected_at <= end_time
+        )
+        .order_by(MetricHistory.collected_at.asc())
+        .limit(limit)
+    )
+
+    try:
+        rows = db.execute(stmt).scalars().all()
+    except Exception as e:
+        # If partition issues or table doesn't exist during dev
+        db.rollback()
+        rows = []
+
+    return {
+        "success": True,
+        "data": [
+            {
+                "metric_value": row.metric_value,
+                "collected_at": row.collected_at.isoformat() if row.collected_at else None
+            }
+            for row in rows
+        ]
+    }
+
 # ──────────────────────── Agents ────────────────────────
 
 @router.get("/agents")
@@ -434,7 +455,7 @@ def get_agents(db: Session = Depends(get_db)):
         })
     return {"success": True, "data": result}
 
-@router.put("/agents/{agent_id}/approve")
+@router.put("/agents/{agent_id}/approve", dependencies=[Depends(require_roles(["ADMIN"]))])
 def approve_agent(agent_id: int, db: Session = Depends(get_db)):
     """에이전트 승인"""
     agent = db.execute(select(Agent).where(Agent.agent_id == agent_id)).scalar_one_or_none()
@@ -445,7 +466,7 @@ def approve_agent(agent_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"success": True, "message": f"Agent {agent_id} approved"}
 
-@router.put("/agents/{agent_id}/revoke")
+@router.put("/agents/{agent_id}/revoke", dependencies=[Depends(require_roles(["ADMIN"]))])
 def revoke_agent(agent_id: int, db: Session = Depends(get_db)):
     """에이전트 차단"""
     agent = db.execute(select(Agent).where(Agent.agent_id == agent_id)).scalar_one_or_none()
@@ -485,7 +506,7 @@ def get_events(status: Optional[str] = None, db: Session = Depends(get_db)):
         })
     return {"success": True, "data": result}
 
-@router.put("/events/{event_uid}/ack")
+@router.put("/events/{event_uid}/ack", dependencies=[Depends(require_roles(["ADMIN", "OPERATOR"]))])
 def ack_event(event_uid: str, db: Session = Depends(get_db)):
     """이벤트 확인(Acknowledge) 처리"""
     evt = db.execute(select(Event).where(Event.event_uid == event_uid)).scalar_one_or_none()
@@ -496,7 +517,7 @@ def ack_event(event_uid: str, db: Session = Depends(get_db)):
     return {"success": True, "message": f"Event {event_uid} acknowledged"}
 
 
-@router.post("/events/{event_uid}/incident")
+@router.post("/events/{event_uid}/incident", dependencies=[Depends(require_roles(["ADMIN", "OPERATOR"]))])
 def create_incident_from_event(
     event_uid: str,
     req: IncidentCreateFromEventRequest,
@@ -518,9 +539,7 @@ def create_incident_from_event(
             return {"success": True, "data": incident_to_dict(inc, actions), "message": "Incident already linked"}
 
     now = datetime.now(timezone.utc)
-    incident_id = next_numeric_id(db, Incident.incident_id)
     inc = Incident(
-        incident_id=incident_id,
         incident_title=req.incident_title or evt.title,
         status_code="OPEN",
         impact_code=req.impact_code or "MEDIUM",
@@ -531,12 +550,12 @@ def create_incident_from_event(
         updated_at=now,
     )
     db.add(inc)
-    evt.incident_id = incident_id
+    db.flush()
+    evt.incident_id = inc.incident_id
 
     note = req.action_note or f"이벤트에서 인시던트 생성: {evt.title}"
     action = IncidentAction(
-        action_id=next_numeric_id(db, IncidentAction.action_id),
-        incident_id=incident_id,
+        incident_id=inc.incident_id,
         action_user_id=req.assigned_to,
         action_note=note,
         action_at=now,
@@ -593,7 +612,7 @@ def get_incident_detail(incident_id: int, db: Session = Depends(get_db)):
     return {"success": True, "data": data}
 
 
-@router.put("/incidents/{incident_id}")
+@router.put("/incidents/{incident_id}", dependencies=[Depends(require_roles(["ADMIN", "OPERATOR"]))])
 def update_incident(
     incident_id: int,
     req: IncidentUpdateRequest,
@@ -612,6 +631,9 @@ def update_incident(
             inc.resolved_at = now
         if req.status_code == "CLOSED" and not inc.closed_at:
             inc.closed_at = now
+        if req.status_code == "OPEN":
+            inc.resolved_at = None
+            inc.closed_at = None
     if req.impact_code is not None:
         inc.impact_code = req.impact_code
     if req.cause_code is not None:
@@ -623,7 +645,7 @@ def update_incident(
     return {"success": True, "data": incident_to_dict(inc)}
 
 
-@router.post("/incidents/{incident_id}/actions")
+@router.post("/incidents/{incident_id}/actions", dependencies=[Depends(require_roles(["ADMIN", "OPERATOR"]))])
 def add_incident_action(
     incident_id: int,
     req: IncidentActionCreateRequest,
@@ -640,6 +662,9 @@ def add_incident_action(
             inc.resolved_at = now
         if req.status_code == "CLOSED" and not inc.closed_at:
             inc.closed_at = now
+        if req.status_code == "OPEN":
+            inc.resolved_at = None
+            inc.closed_at = None
     if req.cause_code:
         inc.cause_code = req.cause_code
     if req.assigned_to is not None:
@@ -647,7 +672,6 @@ def add_incident_action(
     inc.updated_at = now
 
     action = IncidentAction(
-        action_id=next_numeric_id(db, IncidentAction.action_id),
         incident_id=incident_id,
         action_user_id=req.action_user_id,
         action_note=req.action_note,

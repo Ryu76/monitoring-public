@@ -2,9 +2,11 @@
 .env
 .env.*
 !.env.example
+env.key.dpapi*
 backend/.env
 backend/.env.*
 !backend/.env.example
+backend/env.key.dpapi*
 
 # Runtime identifiers and local data
 agent_uid.txt
@@ -31,12 +33,18 @@ dist/
 build/
 frontend/node_modules/
 frontend/dist/
+frontend/playwright-report/
+frontend/test-results/
 
 # Logs and temporary files
 *.log
 logs/
+reports/
 tmp/
 temp/
+
+# Approval-gated local work harness
+.harness/
 
 # OS / editor
 .DS_Store
