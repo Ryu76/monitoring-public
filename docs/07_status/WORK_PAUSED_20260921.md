@@ -202,3 +202,29 @@ ORACLE_TRANSACTION=ROLLED_BACK
 ```
 
 즉, 연결·인증·baseline monitoring schema 접근은 확인됐지만 이번 기능이 필요로 하는 신규 receipt ledger 및 snapshot watermark 테이블은 현재 Oracle schema에 없다. Alembic migration의 DDL은 Oracle에서 implicit commit되며 ROLLBACK으로 되돌릴 수 없다. 따라서 실제 migration 적용은 대상 schema와 변경 창을 명시한 별도 DDL 적용 승인 후에만 수행한다. 그 전까지 PR #1 main 병합은 계속 보류한다.
+
+### 승인된 additive DDL 적용 및 DML rollback 검증
+
+사용자가 additive DDL 적용을 명시 승인했다. `84712a097b58`은 기존 FK를 drop하는 legacy migration이므로 `alembic upgrade head`는 사용하지 않았다. 대신 `c2a445586611`의 additive Oracle 11g DDL만 Alembic operation context에서 직접 실행했으며 Alembic version table을 임의로 stamp하지 않았다.
+
+첫 실행은 Oracle trigger의 `:NEW` pseudorecord를 SQLAlchemy가 bind parameter로 해석해 중단됐다. 이 과정에서 앞선 idempotent DDL 일부가 생성됐지만 데이터 변경은 없었다. migration source에서 trigger pseudorecord를 `\\:NEW`로 escape하고, 검증 테스트를 추가한 뒤 같은 additive migration을 재실행해 완료했다.
+
+```text
+ADDITIVE_ORACLE_MIGRATION=PASS
+APPLIED_REVISION=c2a445586611
+ALEMBIC_VERSION_TABLE_UNCHANGED=TRUE
+
+NEW_TABLES_ABSENT=
+```
+
+실제 Oracle DML rollback test도 수행했다.
+
+```text
+ORACLE_DML_ROLLBACK_TEST=PASS
+CHECK_TARGET_TRIGGER=PASS
+CHECK_RESULT_TRIGGER=PASS
+RECEIPT_LEDGER_INSERT=PASS
+ORACLE_DML_TRANSACTION=ROLLED_BACK
+```
+
+테스트 행은 ROLLBACK되어 남지 않는다. Oracle sequence `NEXTVAL`은 트랜잭션 rollback 대상이 아니므로 test trigger 호출로 sequence 값에는 gap이 생길 수 있다. 이는 데이터 행 변경이 아니라 Oracle sequence의 정상 동작이다.

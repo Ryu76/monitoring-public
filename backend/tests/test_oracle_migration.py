@@ -43,5 +43,8 @@ def test_oracle_operational_migration_covers_all_required_objects_in_order():
     assert "user_sequences" in source
     assert "user_triggers" in source
     assert "CREATE TRIGGER" in source
+    # SQLAlchemy treats :NEW as a bind parameter unless the Oracle trigger
+    # pseudorecord colon is escaped in the SQL text source.
+    assert "\\\\:NEW.{pk_column}" in source
     assert "AUTOINCREMENT" not in source.upper()
     assert "def downgrade()" in source and "pass" in source

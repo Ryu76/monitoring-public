@@ -256,7 +256,7 @@ def _upgrade_oracle() -> None:
                 FOR EACH ROW
                 WHEN (NEW.{pk_column} IS NULL)
                 BEGIN
-                    SELECT {sequence_name}.NEXTVAL INTO :NEW.{pk_column} FROM DUAL;
+                    SELECT {sequence_name}.NEXTVAL INTO \\:NEW.{pk_column} FROM DUAL;
                 END;""",
         )
 
