@@ -155,3 +155,30 @@ exit 0
 serial SQLite regression과 backend pytest 46개 통과는 이 interleaving을 검증하지 않는다. 이 항목은 **feature branch에 WIP 보존 커밋을 올리는 것을 막지는 않지만**, Oracle/운영 배포 및 PR #1 병합을 막는 `HIGH` 위험이다. 재개 시 transaction-safe conditional watermark acquisition 또는 per-metric serialization과 2-session concurrency regression test가 필요하다.
 
 같은 리뷰에서 Oracle migration 테스트가 현재 source-text assertion 위주라 실제 Oracle 11g DDL 렌더/실행 문법을 증명하지 못한다는 검증 공백도 확인됐다. 이는 현재 확인된 문법 결함은 아니지만, Oracle 적용 전 offline DDL render 또는 승인된 Oracle 호환 환경 검증이 필요하다.
+
+## 9. 동시성 보정 통합 및 운영 테스트 상태 (2026-09-21)
+
+독립 worktree `ai-pro/fix-watermark-concurrency`에서 replace-set watermark 취득을 conditional `UPDATE` + `SELECT ... FOR UPDATE`/savepoint initialization 방식으로 보정하고, 다음 커밋을 PR 브랜치에 통합했다.
+
+- 보정 커밋: `0f86f26 fix: serialize replace-set snapshot watermark`
+- PR 브랜치 통합 커밋: `ccf9bf2 merge: apply snapshot watermark concurrency fix`
+
+통합 브랜치에서 실제 실행한 품질 게이트:
+
+```text
+PYTHONPATH=backend conda run --no-capture-output -n monitor_backend python -m pytest backend/tests -q
+46 passed, 9 warnings
+
+PYTHONPATH=backend conda run --no-capture-output -n monitor_backend python -m compileall -q backend
+exit 0
+
+cd frontend && npm run build
+exit 0 (Vite build completed)
+
+git diff --check
+exit 0
+```
+
+Oracle 운영 테스트는 아직 시작하지 못했다. 현재 모든 확인 대상 worktree에 `backend/.env.enc`와 `backend/env.key.dpapi`가 없고, process environment에도 `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_SERVICE_NAME`, `SECRET_KEY`가 설정되어 있지 않다. 자격 증명 값을 채팅에 전송할 필요는 없으며, 암호화된 설정 파일 쌍의 안전한 배치 경로 또는 이미 구성된 실행 환경을 지정받은 뒤 `SELECT 1 FROM DUAL` + explicit `ROLLBACK` preflight부터 수행한다. DDL migration은 Oracle의 implicit commit 특성상 별도 명시 승인 없이는 운영 endpoint에서 실행하지 않는다.
+
+이 문서 시점에도 PR #1의 main 병합은 보류다. 남은 운영 Oracle 증적 및 독립 merge review를 통과하기 전에는 main으로 병합하지 않는다.
