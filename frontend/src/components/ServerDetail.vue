@@ -1,13 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import api from '../api'
-import { use } from 'echarts/core'
-import { CanvasRenderer } from 'echarts/renderers'
-import { GaugeChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent, TitleComponent } from 'echarts/components'
-import VChart from 'vue-echarts'
 
-use([CanvasRenderer, GaugeChart, GridComponent, TooltipComponent, LegendComponent, TitleComponent])
+const ServerPerformanceGauges = defineAsyncComponent(() => import('./ServerPerformanceGauges.vue'))
 
 interface ServerItem {
   server_id: number
@@ -293,34 +288,6 @@ const fetchCheckHistory = async (targetType: string, targetName: string) => {
   }
 }
 
-const gaugeOption = (title: string, value: number, color: string) => ({
-  series: [{
-    type: 'gauge',
-    startAngle: 220,
-    endAngle: -40,
-    min: 0,
-    max: 100,
-    radius: '90%',
-    progress: { show: true, width: 14, roundCap: true, itemStyle: { color } },
-    pointer: { show: false },
-    axisLine: { lineStyle: { width: 14, color: [[1, 'rgba(255,255,255,0.08)']] } },
-    axisTick: { show: false },
-    splitLine: { show: false },
-    axisLabel: { show: false },
-    title: { show: true, offsetCenter: [0, '70%'], fontSize: 13, color: '#94a3b8' },
-    detail: {
-      valueAnimation: true,
-      fontSize: 28,
-      fontWeight: 'bold',
-      color: '#f8fafc',
-      formatter: '{value}%',
-      offsetCenter: [0, '30%']
-    },
-    data: [{ value, name: title }]
-  }],
-  backgroundColor: 'transparent'
-})
-
 const findMetric = (codes: string[]) => detail.value?.metrics.find(m => codes.includes(m.metric_code)) ?? null
 const findMetrics = (codes: string[]) => detail.value?.metrics.filter(m => codes.includes(m.metric_code)) ?? []
 
@@ -338,9 +305,6 @@ const processCheckMetrics = computed(() => findMetrics(['PROCESS_STATUS']).sort(
 const portMetrics = computed(() => findMetrics(['PORT_LISTEN']).sort((a, b) => Number(a.dimension_value) - Number(b.dimension_value)))
 const serviceMetrics = computed(() => findMetrics(['SERVICE_STATUS']).sort((a, b) => a.dimension_value.localeCompare(b.dimension_value)))
 const emptyMetrics = computed<MetricItem[]>(() => [])
-
-const cpuGauge = computed(() => gaugeOption('CPU', cpuMetric.value?.metric_value ?? 0, '#3b82f6'))
-const memGauge = computed(() => gaugeOption('메모리', memMetric.value?.metric_value ?? 0, '#14b8a6'))
 
 const diskStatusLabel = (value: number) => {
   if (value >= 90) return '위험'
@@ -568,14 +532,11 @@ onMounted(fetchServers)
           <p v-if="targetSaved" class="save-message">{{ targetSaved }}</p>
         </div>
 
-        <div class="gauge-grid">
-          <div class="glass-card chart-card">
-            <v-chart :option="cpuGauge" autoresize style="width: 100%; height: 100%;" />
-          </div>
-          <div class="glass-card chart-card">
-            <v-chart :option="memGauge" autoresize style="width: 100%; height: 100%;" />
-          </div>
-        </div>
+        <ServerPerformanceGauges
+          v-if="detail"
+          :cpu-value="cpuMetric?.metric_value ?? 0"
+          :memory-value="memMetric?.metric_value ?? 0"
+        />
 
         <div class="glass-card disk-card" v-if="diskUsageItems.length > 0">
           <div class="section-header">
@@ -1139,18 +1100,6 @@ onMounted(fetchServers)
   padding: 20px 0;
   text-align: center;
 }
-.gauge-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
-  margin-bottom: 24px;
-}
-.chart-card {
-  height: 280px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -1286,13 +1235,6 @@ onMounted(fetchServers)
   }
   .history-card table {
     min-width: 640px;
-  }
-  .gauge-grid {
-    grid-template-columns: 1fr;
-    gap: 14px;
-  }
-  .chart-card {
-    height: 230px;
   }
   .metric-grid,
   .friendly-metric-grid {
