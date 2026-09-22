@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 import jwt
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -21,7 +22,11 @@ from app.core.database import Base
 from app.api.dependencies import get_db
 from app.core.config import settings
 
-engine = create_engine("sqlite:///test_p3_extension.db", connect_args={"check_same_thread": False})
+engine = create_engine(
+    "sqlite://",
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def override_get_db():

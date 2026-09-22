@@ -36,8 +36,9 @@ class SettingsContractTests(unittest.TestCase):
     def test_missing_runtime_secrets_fail_closed(self) -> None:
         for key in REQUIRED:
             os.environ.pop(key, None)
+        config = importlib.import_module("app.core.config")
         with self.assertRaises(ValidationError):
-            importlib.import_module("app.core.config")
+            config.build_settings()
 
     def test_explicit_runtime_values_are_accepted(self) -> None:
         os.environ.update(REQUIRED)

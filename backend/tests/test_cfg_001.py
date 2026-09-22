@@ -82,7 +82,7 @@ def test_missing_required_secret_fail_closed():
         import app.core.config as config
         with patch('app.core.config.load_encrypted_env', return_value={}):
             with pytest.raises(ValidationError):
-                importlib.reload(config)
+                importlib.reload(config).build_settings()
 
 def test_no_unsafe_sql_secret_fallback():
     # Ensure there's no unsafe fallback if the config doesn't provide a DB_PASSWORD

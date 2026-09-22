@@ -1,95 +1,99 @@
-import os
+from __future__ import annotations
+
 import sys
 from pathlib import Path
-from sqlalchemy import create_engine, text
+
+from sqlalchemy import select, text
 from sqlalchemy.orm import sessionmaker
 
-def run_preflight(backend_dir=None):
-    """
-    Check configuration and database connectivity without leaking secrets.
-    """
-    if backend_dir is None:
-        backend_dir = Path(__file__).resolve().parent
+from app.core.config import (
+    build_settings,
+    get_database_url,
+    load_encrypted_env,
+    set_runtime_settings,
+)
 
+CORE_TABLES = ("SYS_USER", "SYS_ROLE", "SYS_USER_ROLE")
+
+
+def _required_table_statement() -> tuple[object, dict[str, str]]:
+    table_bindings = {f"table_{index}": table for index, table in enumerate(CORE_TABLES)}
+    placeholders = ", ".join(f":{key}" for key in table_bindings)
+    statement = text(
+        "SELECT table_name FROM all_tables "
+        "WHERE owner = :owner AND table_name IN (" + placeholders + ")"
+    )
+    return statement, table_bindings
+
+
+def run_preflight(backend_dir: Path | None = None) -> bool:
+    """Validate encrypted configuration and read-only Oracle access without leaks."""
+    backend_dir = backend_dir or Path(__file__).resolve().parent
     env_enc_path = backend_dir / ".env.enc"
     key_dpapi_path = backend_dir / "env.key.dpapi"
 
-    print(f"Checking configuration at {backend_dir}")
-
-    # 1. Check encrypted artifacts presence
+    print("Checking encrypted configuration artifacts.")
     if not env_enc_path.is_file():
-        print(f"[FAIL] Missing {env_enc_path.name}")
+        print("[FAIL] Missing .env.enc")
         return False
     if not key_dpapi_path.is_file():
-        print(f"[FAIL] Missing {key_dpapi_path.name}")
+        print("[FAIL] Missing env.key.dpapi")
         return False
-
     print("[OK] Encrypted configuration artifacts found.")
 
-    # 2. Check decryptability
     try:
-        from app.core.config import load_encrypted_env
-        env_vars = load_encrypted_env(
+        encrypted_values = load_encrypted_env(
             env_path=str(env_enc_path),
-            key_path=str(key_dpapi_path)
+            key_path=str(key_dpapi_path),
         )
-        if not env_vars:
+        if not encrypted_values:
             print("[FAIL] Configuration could not be decrypted or is empty.")
             return False
+        configured = build_settings(encrypted_values)
+        set_runtime_settings(configured)
     except Exception:
-        print("[FAIL] Error during configuration decryption (details suppressed).")
+        print("[FAIL] Configuration validation failed (details suppressed).")
         return False
-
-    print("[OK] Configuration successfully decrypted.")
-
-    # 3. Report sanitized endpoint metadata
-    db_host = env_vars.get("DB_HOST", "Unknown")
-    db_port = env_vars.get("DB_PORT", "Unknown")
-    db_service = env_vars.get("DB_SERVICE_NAME", "Unknown")
-
-    print(f"[INFO] Target DB Endpoint: {db_host}:{db_port} (Service: {db_service})")
-
-    # 4. DB connection test (read-only, explicit rollback)
-    db_user = env_vars.get("DB_USER")
-    db_password = env_vars.get("DB_PASSWORD")
-
-    if not db_user or not db_password:
-        print("[FAIL] Database credentials missing from configuration.")
-        return False
-
-    from sqlalchemy.engine import URL
-    try:
-        db_port_number = int(db_port)
-    except (TypeError, ValueError):
-        print("[FAIL] Database port is invalid.")
-        return False
-
-    db_url = URL.create(
-        drivername="oracle+oracledb",
-        username=db_user,
-        password=db_password,
-        host=db_host,
-        port=db_port_number,
-        query={"service_name": db_service},
-    )
+    print("[OK] Configuration artifacts decrypted and validated.")
 
     try:
-        engine = create_engine(db_url, echo=False)
-        SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-        db = SessionLocal()
+        from app.core.database import create_database_engine
+        from app.models.system import SysUser
+
+        engine = create_database_engine(
+            get_database_url(configured),
+            db_schema=configured.DB_SCHEMA,
+        )
+        session_factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+        db = session_factory()
         try:
-            # Read-only test; explicitly end the transaction even for SELECT.
             db.execute(text("SELECT 1 FROM DUAL"))
-            db.rollback()
-            print("[OK] Database connection and read test successful.")
+
+            table_statement, table_bindings = _required_table_statement()
+            rows = db.execute(
+                table_statement,
+                {"owner": configured.DB_SCHEMA.upper(), **table_bindings},
+            ).scalars().all()
+            available_tables = {str(row).upper() for row in rows}
+            missing_tables = set(CORE_TABLES) - available_tables
+            if missing_tables:
+                print("[FAIL] Required core table availability check failed.")
+                return False
+
+            # The engine's Oracle schema_translate_map applies the configured
+            # schema to this intentionally schema-less ORM model.
+            db.execute(select(SysUser).limit(1))
         finally:
+            # SELECT can still start a transaction on Oracle; never leave it open.
+            db.rollback()
             db.close()
     except Exception:
-        print("[FAIL] Database connection failed (details suppressed).")
+        print("[FAIL] Database read-only preflight failed (details suppressed).")
         return False
 
+    print("[OK] Database read-only preflight completed.")
     return True
 
+
 if __name__ == "__main__":
-    success = run_preflight()
-    sys.exit(0 if success else 1)
+    raise SystemExit(0 if run_preflight() else 1)

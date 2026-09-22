@@ -1,20 +1,32 @@
 import oracledb
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
-from app.core.config import get_database_url
+from sqlalchemy.engine import Engine, URL
+from sqlalchemy.orm import declarative_base, sessionmaker
 
-# Oracle 11g 호환을 위해 Thick mode를 활성화합니다.
-# 시스템에 Oracle Instant Client가 설치되어 있어야 합니다.
+from app.core.config import get_database_url, settings
+
+# Oracle 11g compatibility may use Thick mode when an Instant Client exists.
 try:
     oracledb.init_oracle_client()
-except Exception as e:
-    print("Warning: Failed to initialize Oracle Client for Thick mode. Ensure Oracle Instant Client is installed.", e)
+except Exception:
+    # Thin mode remains supported. Avoid printing machine-specific client paths.
+    pass
 
-# SQLAlchemy 동기 엔진 구성
-engine = create_engine(
-    get_database_url(),
-    echo=False, # 개발 환경용 쿼리 로깅
-)
+
+def create_database_engine(
+    database_url: URL | str | None = None,
+    db_schema: str | None = None,
+) -> Engine:
+    """Create an engine with Oracle-only schema translation for schema-less models."""
+    engine = create_engine(database_url or get_database_url(), echo=False)
+    if engine.dialect.name == "oracle":
+        return engine.execution_options(
+            schema_translate_map={None: db_schema or settings.DB_SCHEMA}
+        )
+    return engine
+
+
+engine = create_database_engine()
 
 SessionLocal = sessionmaker(
     autocommit=False,
