@@ -88,6 +88,8 @@ def main() -> int:
     if not args.apply:
         parser.error("--apply is required because this command changes the configured database.")
 
+    from app.core.config import configure_runtime_settings
+    configure_runtime_settings()
     from app.core.database import SessionLocal
 
     db = SessionLocal()

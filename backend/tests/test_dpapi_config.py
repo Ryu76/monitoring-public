@@ -55,11 +55,11 @@ def test_load_encrypted_env():
 
 def test_settings_requires_env_vars():
     with patch.dict(os.environ, {}, clear=True):
-        import app.core.config as config
+        from app.core import config
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError):
-            importlib.reload(config)
+            config.build_settings()
 
 
 def test_settings_loaded_with_env_vars():

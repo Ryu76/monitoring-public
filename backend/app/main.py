@@ -1,6 +1,12 @@
+from app.core.config import configure_runtime_settings
+
+# Explicitly load encrypted local configuration before importing routes that use
+# settings or construct the database engine. This does not modify os.environ.
+settings = configure_runtime_settings()
+
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 from app.api.agent.v1.router import router as agent_router
 from app.api.web.v1.router import router as web_router
 from app.api.admin.v1.router import router as admin_router

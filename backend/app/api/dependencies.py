@@ -111,7 +111,10 @@ def require_roles(allowed_roles: list[str]):
         user_roles = db.execute(
             select(SysRole.role_code)
             .join(SysUserRole, SysRole.role_id == SysUserRole.role_id)
-            .where(SysUserRole.user_id == current_user.user_id)
+            .where(
+                SysUserRole.user_id == current_user.user_id,
+                SysRole.use_yn == "Y",
+            )
         ).scalars().all()
         
         if "SUPER_ADMIN" in user_roles:

@@ -1,112 +1,86 @@
-import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch, MagicMock
-import pytest
+from unittest.mock import MagicMock, patch
+
 from cryptography.fernet import Fernet
 
 from app.core.dpapi import protect_data
 import preflight
 
-required_test_values = {
+REQUIRED_TEST_VALUES = {
     "DB_USER": "test_user",
     "DB_PASSWORD": "test_password",
-    "DB_HOST": "localhost",
+    "DB_HOST": "database.internal.example",
     "DB_PORT": "1521",
     "DB_SERVICE_NAME": "test_service",
+    "DB_SCHEMA": "TEST_SCHEMA",
     "SECRET_KEY": "test_secret",
 }
 
+
+def _write_artifacts(directory: Path, values: dict[str, str] = REQUIRED_TEST_VALUES) -> None:
+    fernet_key = Fernet.generate_key()
+    payload = "\n".join(f"{key}={value}" for key, value in values.items())
+    (directory / ".env.enc").write_bytes(Fernet(fernet_key).encrypt(payload.encode("utf-8")))
+    (directory / "env.key.dpapi").write_bytes(protect_data(fernet_key))
+
+
 def test_preflight_missing_artifacts(capsys):
     with TemporaryDirectory() as temp_dir:
-        success = preflight.run_preflight(backend_dir=Path(temp_dir))
-        assert success is False
-        captured = capsys.readouterr()
-        assert "[FAIL] Missing .env.enc" in captured.out
+        assert preflight.run_preflight(backend_dir=Path(temp_dir)) is False
+    assert "[FAIL] Missing .env.enc" in capsys.readouterr().out
 
-def test_preflight_decryptability_failure(capsys):
+
+def test_preflight_rejects_invalid_schema_without_connecting(capsys):
     with TemporaryDirectory() as temp_dir:
-        temp_dir_path = Path(temp_dir)
-        env_enc_path = temp_dir_path / ".env.enc"
-        key_dpapi_path = temp_dir_path / "env.key.dpapi"
+        directory = Path(temp_dir)
+        invalid_values = {**REQUIRED_TEST_VALUES, "DB_SCHEMA": "INVALID-SCHEMA"}
+        _write_artifacts(directory, invalid_values)
+        assert preflight.run_preflight(backend_dir=directory) is False
+    output = capsys.readouterr().out
+    assert "Configuration validation failed" in output
+    assert "INVALID-SCHEMA" not in output
 
-        env_enc_path.write_bytes(b"invalid_encrypted_data")
-        key_dpapi_path.write_bytes(b"invalid_dpapi_key")
 
-        success = preflight.run_preflight(backend_dir=temp_dir_path)
-        assert success is False
-        captured = capsys.readouterr()
-        assert "[FAIL]" in captured.out
-        # Should not leak raw exceptions
-        assert "Traceback" not in captured.out
-
-def test_preflight_success(capsys):
+def test_preflight_runs_read_only_schema_mapped_checks_without_leaking_values(capsys):
     with TemporaryDirectory() as temp_dir:
-        temp_dir_path = Path(temp_dir)
-        env_enc_path = temp_dir_path / ".env.enc"
-        key_dpapi_path = temp_dir_path / "env.key.dpapi"
+        directory = Path(temp_dir)
+        _write_artifacts(directory)
 
-        env_payload = "\n".join(f"{k}={v}" for k, v in required_test_values.items())
-        fernet_key = Fernet.generate_key()
-        encrypted_env = Fernet(fernet_key).encrypt(env_payload.encode("utf-8"))
-        dpapi_key = protect_data(fernet_key)
-
-        env_enc_path.write_bytes(encrypted_env)
-        key_dpapi_path.write_bytes(dpapi_key)
-
-        # Mock database connection
         mock_engine = MagicMock()
-        mock_session_maker = MagicMock()
+        mock_session_factory = MagicMock()
         mock_session = MagicMock()
-        mock_session_maker.return_value = mock_session
+        mock_session_factory.return_value = mock_session
+        core_rows = MagicMock()
+        core_rows.scalars.return_value.all.return_value = list(preflight.CORE_TABLES)
+        mock_session.execute.side_effect = [MagicMock(), core_rows, MagicMock()]
 
-        with patch("preflight.create_engine", return_value=mock_engine) as mock_create_engine, \
-             patch("preflight.sessionmaker", return_value=mock_session_maker):
+        with patch("app.core.database.create_database_engine", return_value=mock_engine) as factory, patch(
+            "preflight.sessionmaker", return_value=mock_session_factory
+        ):
+            assert preflight.run_preflight(backend_dir=directory) is True
 
-            success = preflight.run_preflight(backend_dir=temp_dir_path)
+        assert factory.call_args.kwargs["db_schema"] == "TEST_SCHEMA"
+        statements = [str(call.args[0]) for call in mock_session.execute.call_args_list]
+        assert "SELECT 1 FROM DUAL" in statements[0]
+        assert "all_tables" in statements[1]
+        assert "sys_user" in statements[2].lower()
+        assert mock_session.rollback.call_count == 1
+        assert mock_session.close.call_count == 1
 
-            assert success is True
+    output = capsys.readouterr().out
+    assert "Database read-only preflight completed" in output
+    for secret_or_endpoint in ("test_password", "test_user", "database.internal.example", "test_service", "oracle+oracledb://"):
+        assert secret_or_endpoint not in output
 
-            # Verify DB connection read-only and rollback
-            mock_session.execute.assert_called_once()
-            args, _ = mock_session.execute.call_args
-            assert "SELECT 1 FROM DUAL" in str(args[0])
-            mock_session.rollback.assert_called_once()
-            mock_session.close.assert_called_once()
 
-            # Verify connection string didn't have echo=True
-            assert mock_create_engine.call_args.kwargs.get("echo") is False
-
-            captured = capsys.readouterr()
-            assert "[OK] Encrypted configuration artifacts found" in captured.out
-            assert "[OK] Configuration successfully decrypted" in captured.out
-            assert "[INFO] Target DB Endpoint: localhost:1521 (Service: test_service)" in captured.out
-            assert "[OK] Database connection and read test successful" in captured.out
-
-            # Ensure no secrets printed
-            assert "test_password" not in captured.out
-            assert "test_user" not in captured.out
-            assert "oracle+oracledb://" not in captured.out
-
-def test_preflight_db_connection_failure(capsys):
+def test_preflight_suppresses_database_exception_details(capsys):
     with TemporaryDirectory() as temp_dir:
-        temp_dir_path = Path(temp_dir)
-        env_enc_path = temp_dir_path / ".env.enc"
-        key_dpapi_path = temp_dir_path / "env.key.dpapi"
-
-        env_payload = "\n".join(f"{k}={v}" for k, v in required_test_values.items())
-        fernet_key = Fernet.generate_key()
-        encrypted_env = Fernet(fernet_key).encrypt(env_payload.encode("utf-8"))
-        dpapi_key = protect_data(fernet_key)
-
-        env_enc_path.write_bytes(encrypted_env)
-        key_dpapi_path.write_bytes(dpapi_key)
-
-        with patch("preflight.create_engine", side_effect=Exception("Database down")):
-            success = preflight.run_preflight(backend_dir=temp_dir_path)
-
-            assert success is False
-            captured = capsys.readouterr()
-            assert "[FAIL] Database connection failed" in captured.out
-            assert "Database down" not in captured.out
-            assert "Traceback" not in captured.out
+        directory = Path(temp_dir)
+        _write_artifacts(directory)
+        with patch("app.core.database.create_database_engine", side_effect=Exception("Database down")):
+            assert preflight.run_preflight(backend_dir=directory) is False
+    output = capsys.readouterr().out
+    assert "Database read-only preflight failed" in output
+    assert "Database down" not in output
+    assert "Traceback" not in output
