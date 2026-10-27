@@ -103,7 +103,7 @@ def test_dashboard_summary_uses_bounded_query_count_and_preserves_contract():
     get_count, listener = count_statements(engine)
     try:
         result = dashboard_summary(session)
-        assert get_count() == 4
+        assert get_count() == 1
         assert result == {
             "total_servers": 3,
             "normal": 1,

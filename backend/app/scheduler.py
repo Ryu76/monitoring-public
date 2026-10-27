@@ -1,103 +1,107 @@
-import time
 import logging
+import time
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+
 from apscheduler.schedulers.background import BackgroundScheduler
-from sqlalchemy import select, and_
+from sqlalchemy import select
 
 from app.core.database import SessionLocal
-from app.models.agent import AgentStatusCurr, Agent
+from app.core.query_batches import oracle_in_chunks
+from app.models.agent import Agent, AgentStatusCurr
 from app.models.event import Event
 
 logger = logging.getLogger(__name__)
+OFFLINE_EVENT_TITLE = "[FATAL] 에이전트 연결 끊김"
+
 
 def check_agent_offline():
-    """
-    최종 하트비트 시각이 2분을 초과한 에이전트를 감지하여
-    오프라인(장애) 이벤트를 발생시킵니다.
-    """
+    """Batch-load agents, open events, and statuses for the scheduler cycle."""
     db = SessionLocal()
     try:
         now = datetime.now(timezone.utc)
         threshold_time = now - timedelta(minutes=2)
-        
-        # 1. 하트비트 시각이 2분 경과한 상태 조회
-        stmt = select(AgentStatusCurr).where(AgentStatusCurr.last_heartbeat_at < threshold_time)
-        offline_agents = db.execute(stmt).scalars().all()
-        
-        for status in offline_agents:
-            if status.agent_status != 'OFFLINE':
-                # 상태 업데이트
-                status.agent_status = 'OFFLINE'
-                
-                # 에이전트 정보 획득
-                agent = db.execute(select(Agent).where(Agent.agent_id == status.agent_id)).scalar_one_or_none()
-                server_id = agent.server_id if agent else None
-                
-                # 중복 이벤트가 없는지 확인
-                evt_stmt = select(Event).where(
-                    and_(
-                        Event.server_id == server_id,
-                        Event.target_type_code == 'AGENT',
-                        Event.title == '[FATAL] 에이전트 연결 끊김',
-                        Event.status_code == 'OPEN'
-                    )
-                )
-                existing_evt = db.execute(evt_stmt).scalar_one_or_none()
-                
-                if not existing_evt:
-                    new_evt = Event(
-                        event_uid=str(uuid.uuid4()),
-                        server_id=server_id,
-                        target_type_code='AGENT',
-                        target_key=str(status.agent_id),
-                        severity_code='FATAL',
-                        status_code='OPEN',
-                        title='[FATAL] 에이전트 연결 끊김',
-                        message='에이전트로부터 2분 이상 하트비트가 수신되지 않았습니다.',
-                        first_occurred_at=now,
-                        last_occurred_at=now,
-                        occurrence_count=1
-                    )
-                    db.add(new_evt)
-                    logger.warning(f"Agent Offline Event Created for Agent ID: {status.agent_id}")
-                    
-        # 2. 반대로 복구된 에이전트(OFFLINE이었으나 하트비트가 최근 갱신된 경우) 이벤트 닫기
-        open_evts = db.execute(select(Event).where(
-            and_(
-                Event.target_type_code == 'AGENT',
-                Event.title == '[FATAL] 에이전트 연결 끊김',
-                Event.status_code == 'OPEN'
+        offline_rows = db.execute(
+            select(AgentStatusCurr, Agent.server_id)
+            .outerjoin(Agent, Agent.agent_id == AgentStatusCurr.agent_id)
+            .where(AgentStatusCurr.last_heartbeat_at < threshold_time)
+        ).all()
+        open_events = db.execute(
+            select(Event).where(
+                Event.target_type_code == "AGENT",
+                Event.title == OFFLINE_EVENT_TITLE,
+                Event.status_code == "OPEN",
             )
-        )).scalars().all()
-        
-        for evt in open_evts:
-            agent_id = int(evt.target_key) if evt.target_key and evt.target_key.isdigit() else None
-            if agent_id:
-                curr_status = db.execute(select(AgentStatusCurr).where(AgentStatusCurr.agent_id == agent_id)).scalar_one_or_none()
-                # 현재 상태가 NORMAL 이면 장애 복구 처리
-                if curr_status and curr_status.agent_status == 'NORMAL':
-                    evt.status_code = 'CLOSED'
-                    evt.recovered_at = now
-                    evt.message += " | 에이전트 연결이 정상 복구되었습니다."
-                    logger.info(f"Agent Offline Event Closed for Agent ID: {agent_id}")
+        ).scalars().all()
+        open_event_by_server = {event.server_id: event for event in open_events}
+
+        for current_status, server_id in offline_rows:
+            if current_status.agent_status == "OFFLINE":
+                continue
+            current_status.agent_status = "OFFLINE"
+            if server_id in open_event_by_server:
+                continue
+
+            new_event = Event(
+                event_uid=str(uuid.uuid4()),
+                server_id=server_id,
+                target_type_code="AGENT",
+                target_key=str(current_status.agent_id),
+                severity_code="FATAL",
+                status_code="OPEN",
+                title=OFFLINE_EVENT_TITLE,
+                message="에이전트로부터 2분 이상 하트비트가 수신되지 않았습니다.",
+                first_occurred_at=now,
+                last_occurred_at=now,
+                occurrence_count=1,
+            )
+            db.add(new_event)
+            open_events.append(new_event)
+            open_event_by_server[server_id] = new_event
+            logger.warning("Agent Offline Event Created for Agent ID: %s", current_status.agent_id)
+
+        event_agent_ids = {
+            int(event.target_key)
+            for event in open_events
+            if event.target_key and event.target_key.isdigit()
+        }
+        statuses_by_agent_id: dict[int, AgentStatusCurr] = {}
+        for agent_id_chunk in oracle_in_chunks(event_agent_ids):
+            statuses_by_agent_id.update({
+                status.agent_id: status
+                for status in db.execute(
+                    select(AgentStatusCurr).where(
+                        AgentStatusCurr.agent_id.in_(agent_id_chunk)
+                    )
+                ).scalars()
+            })
+
+        for event in open_events:
+            agent_id = int(event.target_key) if event.target_key and event.target_key.isdigit() else None
+            current_status = statuses_by_agent_id.get(agent_id) if agent_id is not None else None
+            if current_status and current_status.agent_status == "NORMAL":
+                event.status_code = "CLOSED"
+                event.recovered_at = now
+                event.message += " | 에이전트 연결이 정상 복구되었습니다."
+                logger.info("Agent Offline Event Closed for Agent ID: %s", agent_id)
 
         db.commit()
-    except Exception as e:
-        logger.error(f"Error in check_agent_offline: {e}")
+    except Exception as exc:
+        logger.error("Error in check_agent_offline: %s", exc)
         db.rollback()
     finally:
         db.close()
 
+
 def start_scheduler():
     scheduler = BackgroundScheduler()
-    # 1분마다 미수신 에이전트 검사 수행
-    scheduler.add_job(check_agent_offline, 'interval', minutes=1, id='agent_offline_checker')
+    scheduler.add_job(check_agent_offline, "interval", minutes=1, id="agent_offline_checker")
     scheduler.start()
     logger.info("Agent Offline Scheduler started.")
 
+
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s - %(message)s')
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s - %(message)s")
     start_scheduler()
     try:
         while True:

@@ -14,44 +14,46 @@ STATUS_LABELS = ("NORMAL", "WARNING", "CRITICAL", "UNKNOWN")
 
 
 def dashboard_summary(db: Session) -> dict[str, int]:
-    total_servers = db.execute(
-        select(func.count(Server.server_id)).where(Server.use_yn == "Y")
-    ).scalar_one()
-    status_row = db.execute(
+    """Return dashboard aggregates in one statement without a cross join."""
+    status_counts = [
         select(
-            *[
-                func.coalesce(
-                    func.sum(case((ServerStatusCurr.composite_status == label, 1), else_=0)),
-                    0,
-                ).label(label.lower())
-                for label in STATUS_LABELS
-            ]
-        )
-    ).mappings().one()
-    agent_row = db.execute(
-        select(
-            func.count(Agent.agent_id).label("total_agents"),
             func.coalesce(
-                func.sum(case((AgentStatusCurr.agent_status == "NORMAL", 1), else_=0)),
+                func.sum(case((ServerStatusCurr.composite_status == label, 1), else_=0)),
                 0,
-            ).label("online_agents"),
-        ).select_from(Agent).outerjoin(
-            AgentStatusCurr, AgentStatusCurr.agent_id == Agent.agent_id
+            )
+        ).scalar_subquery().label(label.lower())
+        for label in STATUS_LABELS
+    ]
+    agent_from = Agent.__table__.outerjoin(
+        AgentStatusCurr.__table__, AgentStatusCurr.agent_id == Agent.agent_id
+    )
+    row = db.execute(
+        select(
+            select(func.count(Server.server_id))
+            .where(Server.use_yn == "Y")
+            .scalar_subquery()
+            .label("total_servers"),
+            *status_counts,
+            select(func.count(Agent.agent_id))
+            .select_from(agent_from)
+            .scalar_subquery()
+            .label("total_agents"),
+            select(
+                func.coalesce(
+                    func.sum(case((AgentStatusCurr.agent_status == "NORMAL", 1), else_=0)),
+                    0,
+                )
+            )
+            .select_from(agent_from)
+            .scalar_subquery()
+            .label("online_agents"),
+            select(func.count(Event.event_uid))
+            .where(Event.status_code == "OPEN")
+            .scalar_subquery()
+            .label("open_events"),
         )
     ).mappings().one()
-    open_events = db.execute(
-        select(func.count(Event.event_uid)).where(Event.status_code == "OPEN")
-    ).scalar_one()
-    return {
-        "total_servers": total_servers,
-        "normal": status_row["normal"],
-        "warning": status_row["warning"],
-        "critical": status_row["critical"],
-        "unknown": status_row["unknown"],
-        "total_agents": agent_row["total_agents"],
-        "online_agents": agent_row["online_agents"],
-        "open_events": open_events,
-    }
+    return dict(row)
 
 
 def server_list(

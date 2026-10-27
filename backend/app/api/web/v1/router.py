@@ -504,18 +504,33 @@ def create_incident_from_event(
 
 @router.get("/incidents")
 def get_incidents(db: Session = Depends(get_db)):
-    """장애 인시던트 목록 조회"""
-    incidents = db.execute(select(Incident)).scalars().all()
+    """Return incidents and their latest action in one Oracle 11g-safe query."""
+    ranked_actions = select(
+        IncidentAction.incident_id.label("incident_id"),
+        IncidentAction.action_note.label("action_note"),
+        IncidentAction.action_at.label("action_at"),
+        func.row_number().over(
+            partition_by=IncidentAction.incident_id,
+            order_by=(IncidentAction.action_at.desc(), IncidentAction.action_id.desc()),
+        ).label("row_num"),
+    ).subquery()
+    stmt = select(
+        Incident,
+        ranked_actions.c.action_note,
+        ranked_actions.c.action_at,
+    ).outerjoin(
+        ranked_actions,
+        and_(
+            ranked_actions.c.incident_id == Incident.incident_id,
+            ranked_actions.c.row_num == 1,
+        ),
+    )
+
     result = []
-    for inc in incidents:
-        latest_action = db.execute(
-            select(IncidentAction)
-            .where(IncidentAction.incident_id == inc.incident_id)
-            .order_by(IncidentAction.action_at.desc())
-        ).scalars().first()
+    for inc, action_note, action_at in db.execute(stmt).all():
         item = incident_to_dict(inc)
-        item["latest_action_note"] = latest_action.action_note if latest_action else None
-        item["latest_action_at"] = latest_action.action_at.isoformat() if latest_action and latest_action.action_at else None
+        item["latest_action_note"] = action_note
+        item["latest_action_at"] = action_at.isoformat() if action_at else None
         result.append(item)
     return {"success": True, "data": result}
 

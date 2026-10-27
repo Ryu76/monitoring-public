@@ -1,17 +1,12 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-import sys
-import os
-sys.path.insert(0, 'e:\\monitor\\backend')
-os.chdir('e:\\monitor\\backend')
+"""Idempotently seed the standard metric definitions through the ORM."""
+from datetime import datetime, timezone
+
+from sqlalchemy import select
 
 from app.core.database import SessionLocal
-from sqlalchemy import text
+from app.models.resource import MetricDef
 
-db = SessionLocal()
-
-# SQL로 직접 메트릭 정의 삽입
-metrics = [
+METRICS = [
     ("CPU_USAGE_PCT", "CPU 사용률 (%)", "CPU", "FLOAT", "PERCENT", "AVG"),
     ("MEM_USAGE_PCT", "메모리 사용률 (%)", "MEMORY", "FLOAT", "PERCENT", "AVG"),
     ("MEM_AVAILABLE_BYTES", "사용 가능 메모리 (Bytes)", "MEMORY", "BIGINT", "BYTES", "AVG"),
@@ -25,35 +20,52 @@ metrics = [
     ("SERVICE_STATUS", "Service Running Status", "SERVICE", "FLOAT", "BOOLEAN", "LAST"),
 ]
 
-for code, name, category, value_type, unit, agg_type in metrics:
-    # 기존 데이터 확인
-    result = db.execute(
-        text("SELECT METRIC_CODE FROM MON_METRIC_DEF WHERE METRIC_CODE = :code"),
-        {"code": code}
-    ).fetchone()
-    
-    if not result:
-        db.execute(
-            text("""INSERT INTO MON_METRIC_DEF 
-            (METRIC_CODE, METRIC_NAME, CATEGORY_CODE, VALUE_TYPE_CODE, UNIT_CODE, AGG_TYPE_CODE,
-             WINDOWS_SUPPORT_YN, LINUX_SUPPORT_YN, USE_YN)
-            VALUES (:code, :name, :category, :value_type, :unit, :agg_type, :win, :linux, :use)"""),
-            {
-                "code": code,
-                "name": name,
-                "category": category,
-                "value_type": value_type,
-                "unit": unit,
-                "agg_type": agg_type,
-                "win": "Y",
-                "linux": "Y",
-                "use": "Y"
-            }
-        )
-        print(f"Inserted: {code}")
-    else:
-        print(f"Already exists: {code}")
 
-db.commit()
-db.close()
-print("Done!")
+def seed_metric_definitions(session) -> list[str]:
+    """Add only missing definitions using one schema-aware ORM preload query."""
+    codes = {metric[0] for metric in METRICS}
+    existing_codes = set(
+        session.execute(
+            select(MetricDef.metric_code).where(MetricDef.metric_code.in_(codes))
+        ).scalars()
+    )
+    inserted = []
+    created_at = datetime.now(timezone.utc)
+    for code, name, category, value_type, unit, agg_type in METRICS:
+        if code in existing_codes:
+            continue
+        session.add(MetricDef(
+            metric_code=code,
+            metric_name=name,
+            category_code=category,
+            value_type_code=value_type,
+            unit_code=unit,
+            agg_type_code=agg_type,
+            windows_support_yn="Y",
+            linux_support_yn="Y",
+            use_yn="Y",
+            created_at=created_at,
+        ))
+        inserted.append(code)
+    return inserted
+
+
+def main() -> int:
+    session = SessionLocal()
+    try:
+        inserted = seed_metric_definitions(session)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+    for code in inserted:
+        print(f"Inserted: {code}")
+    print(f"Done. inserted={len(inserted)} existing={len(METRICS) - len(inserted)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

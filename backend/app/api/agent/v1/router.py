@@ -10,6 +10,7 @@ from sqlalchemy import select, delete, update
 from sqlalchemy.exc import IntegrityError
 
 from app.api.dependencies import get_db, verify_agent
+from app.core.query_batches import oracle_in_chunks
 from app.models.server import Server, ServerStatusCurr
 from app.models.agent import Agent, AgentHeartbeatHist, AgentStatusCurr
 from app.models.resource import (
@@ -65,27 +66,51 @@ CHECK_RESULT_METRICS = {
 }
 
 
-def ensure_metric_def(db: Session, metric_code: str):
-    existing = db.get(MetricDef, metric_code)
-    if existing:
+def ensure_metric_defs(db: Session, metric_codes: set[str]) -> None:
+    """Create missing definitions with one preload query, not one SELECT per item."""
+    if not metric_codes:
         return
 
-    metric_name, category, value_type, unit, agg_type = METRIC_DEFINITIONS.get(
-        metric_code,
-        (metric_code, "CUSTOM", "FLOAT", "COUNT", "LAST")
-    )
-    db.add(MetricDef(
-        metric_code=metric_code,
-        metric_name=metric_name,
-        category_code=category,
-        value_type_code=value_type,
-        unit_code=unit,
-        agg_type_code=agg_type,
-        windows_support_yn="Y",
-        linux_support_yn="Y",
-        use_yn="Y",
-        created_at=datetime.now(timezone.utc),
-    ))
+    existing_codes: set[str] = set()
+    for metric_code_chunk in oracle_in_chunks(metric_codes):
+        existing_codes.update(
+            db.execute(
+                select(MetricDef.metric_code).where(
+                    MetricDef.metric_code.in_(metric_code_chunk)
+                )
+            ).scalars()
+        )
+    missing_codes = metric_codes - existing_codes
+    if not missing_codes:
+        return
+
+    created_at = datetime.now(timezone.utc)
+    db.add_all([
+        MetricDef(
+            metric_code=metric_code,
+            metric_name=METRIC_DEFINITIONS.get(
+                metric_code, (metric_code, "CUSTOM", "FLOAT", "COUNT", "LAST")
+            )[0],
+            category_code=METRIC_DEFINITIONS.get(
+                metric_code, (metric_code, "CUSTOM", "FLOAT", "COUNT", "LAST")
+            )[1],
+            value_type_code=METRIC_DEFINITIONS.get(
+                metric_code, (metric_code, "CUSTOM", "FLOAT", "COUNT", "LAST")
+            )[2],
+            unit_code=METRIC_DEFINITIONS.get(
+                metric_code, (metric_code, "CUSTOM", "FLOAT", "COUNT", "LAST")
+            )[3],
+            agg_type_code=METRIC_DEFINITIONS.get(
+                metric_code, (metric_code, "CUSTOM", "FLOAT", "COUNT", "LAST")
+            )[4],
+            windows_support_yn="Y",
+            linux_support_yn="Y",
+            use_yn="Y",
+            created_at=created_at,
+        )
+        for metric_code in missing_codes
+    ])
+    # MetricCurrent and CheckSnapshotWatermark carry MetricDef foreign keys.
     db.flush()
 
 
@@ -378,6 +403,7 @@ def enroll_agent(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
+
                 "success": False,
                 "code": "ENROLL_FAILED",
                 "message": f"에이전트 등록 중 오류가 발생했습니다: {str(e)}"
@@ -512,6 +538,9 @@ def receive_metrics(
         logger.warning("Deduplication failed: %s, continuing with all items", str(e))
 
     try:
+        metric_codes = {item.metric_code for item in req.items}
+        ensure_metric_defs(db, metric_codes)
+
         # PROCESS/SERVICE/PORT values are snapshots, not independent current
         # observations. A durable per-metric watermark must be checked before
         # delete-and-replace so a delayed spool replay cannot erase new rows.
@@ -528,7 +557,6 @@ def receive_metrics(
         }
         for metric_code in replace_codes:
             snapshot_at = snapshot_at_by_code[metric_code]
-            ensure_metric_def(db, metric_code)
             if not acquire_replace_set_snapshot(
                 db,
                 server_id=agent.server_id,
@@ -545,9 +573,6 @@ def receive_metrics(
                 )
                 continue
 
-            # Acquiring the watermark first serializes replace-set writers on
-            # databases with row locks. Never delete a current set until the
-            # request has acquired that right.
             db.execute(
                 delete(MetricCurrent).where(
                     MetricCurrent.server_id == agent.server_id,
@@ -559,29 +584,36 @@ def receive_metrics(
             item for item in req.items
             if item.metric_code not in stale_replace_codes
         ]
-        # Session autoflush may be disabled (as it is in the ingestion tests),
-        # so retain each current row seen in this batch instead of issuing a
-        # second SELECT that cannot see a pending INSERT.  This preserves every
-        # history row while one current row receives the latest observation.
-        current_by_key: dict[tuple[int, str, str, str], MetricCurrent] = {}
+        accepted_codes = {item.metric_code for item in accepted_items}
+        # Preload current rows once for every metric family in this request.
+        # The map also retains unflushed rows created later in this batch.
+        current_rows: list[MetricCurrent] = []
+        for metric_code_chunk in oracle_in_chunks(accepted_codes):
+            current_rows.extend(
+                db.execute(
+                    select(MetricCurrent).where(
+                        MetricCurrent.server_id == agent.server_id,
+                        MetricCurrent.metric_code.in_(metric_code_chunk),
+                    )
+                ).scalars()
+            )
+        current_by_key: dict[tuple[int, str, str, str], MetricCurrent] = {
+            (
+                current.server_id,
+                current.metric_code,
+                current.dimension_key,
+                current.dimension_value,
+            ): current
+            for current in current_rows
+        }
+
         for item in accepted_items:
             dim_key = item.dimension_key or "-"
             dim_value = item.dimension_value or "-"
-            ensure_metric_def(db, item.metric_code)
             current_key = (agent.server_id, item.metric_code, dim_key, dim_value)
 
-            # 1) mon_metric_curr UPSERT (복합 PK: server_id + metric_code + dim_key + dim_value)
+            # mon_metric_curr UPSERT (composite PK: server/code/dimension).
             existing = current_by_key.get(current_key)
-            if existing is None:
-                existing = db.execute(
-                    select(MetricCurrent).where(
-                        MetricCurrent.server_id == agent.server_id,
-                        MetricCurrent.metric_code == item.metric_code,
-                        MetricCurrent.dimension_key == dim_key,
-                        MetricCurrent.dimension_value == dim_value,
-                    )
-                ).scalar_one_or_none()
-
             if existing:
                 if item.collected_at >= existing.collected_at:
                     existing.metric_value = item.metric_value
