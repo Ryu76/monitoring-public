@@ -9,7 +9,7 @@ services:
     image: container-registry.oracle.com/database/free:latest
     container_name: nexusmon-db
     environment:
-      - ORACLE_PWD=CHANGEME
+      - ORACLE_PWD=${ORACLE_PWD:?ORACLE_PWD must be supplied by an approved secret source}
     ports:
       - "1521:1521"
     volumes:
@@ -29,13 +29,13 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DB_USER=example_db_user
-      - DB_PASSWORD=CHANGEME
+      - DB_USER=${DB_USER:?DB_USER must be supplied by an approved secret source}
+      - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be supplied by an approved secret source}
       - DB_HOST=database
       - DB_PORT=1521
       - DB_SERVICE_NAME=FREE
-      - SECRET_KEY=your_production_secret_key_here
-      - INITIAL_ADMIN_PASSWORD=CHANGE_ME
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be supplied by an approved secret source}
+      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:?INITIAL_ADMIN_PASSWORD must be supplied by an approved secret source}
     depends_on:
       database:
         condition: service_healthy
