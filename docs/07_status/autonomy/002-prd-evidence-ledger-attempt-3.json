@@ -1,0 +1,29 @@
+{
+  "task_id": "002-prd-evidence-ledger",
+  "status": "partial",
+  "summary": "Audited exact MASTER_PRD_BACKLOG IDs against current sources and executed evidence. Corrected stale Oracle unavailability text in PRD_ACCEPTANCE_LEDGER_20261002.md. Copied current-state/disposition plan docs from docs-current-state-plan. Fixed whitespace in PROGRESS.md.",
+  "tests": [
+    {
+      "command": "git diff --check",
+      "result": "Passed (no trailing whitespace in PROGRESS.md)"
+    }
+  ],
+  "external_blockers": [
+    "SEC-001: 권한 매트릭스 확정 대기",
+    "SEC-002: DB migration 설계 확정 대기",
+    "AGT-001: 등록 token/rotation 정책 결정 대기",
+    "JOB-001: 실행 topology 확정 대기",
+    "ING-001/004: 개발 Oracle 환경 필요 및 승인 대기",
+    "MON-004: Browser 검증 필요 (seeded DB)",
+    "ALT-001: Test channel 확정 대기"
+  ],
+  "remaining_local": [
+    "AGT-001: automatic-approval and reenrollment bypass (enrollment path bypasses PENDING setting automatic APPROVED, reenrollment rotates UID and restores APPROVED); missing enrollment-to-approval negative tests.",
+    "JOB-001: worker execution path missing graceful shutdown; missing duplicate worker tests; broken MetricCurrent.updated_at reference in aggregator.py."
+  ],
+  "changed_files": [
+    "docs/03_planning/PRD_ACCEPTANCE_LEDGER_20261002.md",
+    "docs/07_status/PROGRESS.md",
+    "docs/07_status/autonomy/002-prd-evidence-ledger-attempt-3.json"
+  ]
+}

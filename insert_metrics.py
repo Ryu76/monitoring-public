@@ -1,16 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+import os
 import oracledb
 import sys
 from datetime import datetime, timezone
 
 # DB 연결
 connection = oracledb.connect(
-    user="example_db_user",
-    password="CHANGEME",
-    host="127.0.0.1",
-    port=1521,
-    service_name="ORCL"
+    user=os.environ["ORACLE_USER"],
+    password=os.environ["ORACLE_PASSWORD"],
+    host=os.environ.get("ORACLE_HOST", "localhost"),
+    port=int(os.environ.get("ORACLE_PORT", "1521")),
+    service_name=os.environ.get("ORACLE_SERVICE_NAME", "ORCL"),
 )
 
 cursor = connection.cursor()

@@ -18,7 +18,7 @@ def aggregate_metrics_5m():
         now = datetime.now(timezone.utc)
         start_time = now - timedelta(minutes=5)
         
-        stmt = select(MetricCurrent).where(MetricCurrent.updated_at < start_time)
+        stmt = select(MetricCurrent).where(MetricCurrent.collected_at < start_time)
         old_metrics = db.execute(stmt).scalars().all()
         
         for m in old_metrics:
@@ -26,7 +26,7 @@ def aggregate_metrics_5m():
                 server_id=m.server_id,
                 metric_code=m.metric_code,
                 dimension_value=m.dimension_value,
-                collected_at=m.updated_at,
+                collected_at=m.collected_at,
                 metric_value=m.metric_value
             )
             db.add(hist)
@@ -46,6 +46,7 @@ def start_aggregator():
     scheduler.add_job(aggregate_metrics_5m, 'interval', minutes=5, id='aggregator_5m')
     scheduler.start()
     logger.info("Metric Aggregator started.")
+    return scheduler
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s - %(message)s')

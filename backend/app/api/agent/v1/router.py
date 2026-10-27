@@ -48,8 +48,8 @@ METRIC_DEFINITIONS = {
     "DISK_IO_WRITE_TIME": ("Disk IO Write Time", "DISK", "FLOAT", "MILLISECONDS", "SUM"),
     "NET_BYTES_SENT": ("Network Bytes Sent", "NETWORK", "BIGINT", "BYTES", "SUM"),
     "NET_BYTES_RECV": ("Network Bytes Received", "NETWORK", "BIGINT", "BYTES", "SUM"),
-    "NET_BYTES_SENT_RATE": ("Network Bytes Sent Rate", "NETWORK", "BIGINT", "BYTES", "SUM"),
-    "NET_BYTES_RECV_RATE": ("Network Bytes Received Rate", "NETWORK", "BIGINT", "BYTES", "SUM"),
+    "NET_BYTES_SENT_RATE": ("Network Bytes Sent Rate", "NETWORK", "FLOAT", "BYTES_PER_SEC", "AVG"),
+    "NET_BYTES_RECV_RATE": ("Network Bytes Received Rate", "NETWORK", "FLOAT", "BYTES_PER_SEC", "AVG"),
     "PROCESS_CPU_PCT": ("Top Process CPU Usage (%)", "PROCESS", "FLOAT", "PERCENT", "AVG"),
     "PROCESS_MEM_PCT": ("Top Process Memory Usage (%)", "PROCESS", "FLOAT", "PERCENT", "AVG"),
     "PROCESS_STATUS": ("Process Running Status", "PROCESS", "FLOAT", "BOOLEAN", "LAST"),
@@ -67,13 +67,20 @@ CHECK_RESULT_METRICS = {
 
 def ensure_metric_def(db: Session, metric_code: str):
     existing = db.get(MetricDef, metric_code)
-    if existing:
-        return
-
     metric_name, category, value_type, unit, agg_type = METRIC_DEFINITIONS.get(
         metric_code,
         (metric_code, "CUSTOM", "FLOAT", "COUNT", "LAST")
     )
+
+    if existing:
+        # Provide a safe, explicit update path for incorrect rate metrics without 
+        # doing an uncontrolled operational schema migration on all metrics.
+        if metric_code in ("NET_BYTES_SENT_RATE", "NET_BYTES_RECV_RATE"):
+            if existing.value_type_code != value_type or existing.unit_code != unit or existing.agg_type_code != agg_type:
+                existing.value_type_code = value_type
+                existing.unit_code = unit
+                existing.agg_type_code = agg_type
+        return
     db.add(MetricDef(
         metric_code=metric_code,
         metric_name=metric_name,

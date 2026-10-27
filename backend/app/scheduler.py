@@ -95,6 +95,7 @@ def start_scheduler():
     scheduler.add_job(check_agent_offline, 'interval', minutes=1, id='agent_offline_checker')
     scheduler.start()
     logger.info("Agent Offline Scheduler started.")
+    return scheduler
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s - %(message)s')

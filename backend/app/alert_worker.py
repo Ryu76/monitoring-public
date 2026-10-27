@@ -137,6 +137,7 @@ def start_alert_worker():
     scheduler.add_job(process_alerts, 'interval', seconds=30, id='alert_worker')
     scheduler.start()
     logger.info("Alert Worker started.")
+    return scheduler
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s - %(message)s')

@@ -14,6 +14,11 @@ from .base import BaseCollector
 class SystemResourceCollector(BaseCollector):
     """Collect common system resource metrics with psutil."""
 
+    def __init__(self):
+        super().__init__()
+        self._net_last_time = None
+        self._net_last_io = {}
+
     def collect(self) -> List[Dict[str, Any]]:
         now_str = datetime.now(timezone.utc).isoformat()
         metrics: List[Dict[str, Any]] = []
@@ -128,14 +133,36 @@ class SystemResourceCollector(BaseCollector):
         try:
             # Total
             net = psutil.net_io_counters()
-            metrics.append(self._make_metric("NET_BYTES_SENT", float(net.bytes_sent), collected_at))
-            metrics.append(self._make_metric("NET_BYTES_RECV", float(net.bytes_recv), collected_at))
+            if net is not None:
+                metrics.append(self._make_metric("NET_BYTES_SENT", float(net.bytes_sent), collected_at))
+                metrics.append(self._make_metric("NET_BYTES_RECV", float(net.bytes_recv), collected_at))
 
             # Per interface
-            net_if = psutil.net_io_counters(pernic=True)
-            for nic, io in net_if.items():
-                metrics.append(self._make_metric("NET_BYTES_SENT_RATE", float(io.bytes_sent), collected_at, "interface", nic))
-                metrics.append(self._make_metric("NET_BYTES_RECV_RATE", float(io.bytes_recv), collected_at, "interface", nic))
+            net_if = psutil.net_io_counters(pernic=True, nowrap=False)
+            if net_if is None:
+                net_if = {}
+
+            current_time = time.monotonic()
+
+            if self._net_last_time is not None:
+                elapsed = current_time - self._net_last_time
+                if elapsed > 0:
+                    for nic, io in net_if.items():
+                        if nic in self._net_last_io:
+                            last_sent, last_recv = self._net_last_io[nic]
+
+                            sent_delta = io.bytes_sent - last_sent
+                            recv_delta = io.bytes_recv - last_recv
+
+                            if sent_delta >= 0:
+                                sent_rate = float(sent_delta) / elapsed
+                                metrics.append(self._make_metric("NET_BYTES_SENT_RATE", sent_rate, collected_at, "interface", nic))
+                            if recv_delta >= 0:
+                                recv_rate = float(recv_delta) / elapsed
+                                metrics.append(self._make_metric("NET_BYTES_RECV_RATE", recv_rate, collected_at, "interface", nic))
+
+            self._net_last_time = current_time
+            self._net_last_io = {nic: (io.bytes_sent, io.bytes_recv) for nic, io in net_if.items()}
         except Exception:
             pass
         return metrics

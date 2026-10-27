@@ -1,0 +1,29 @@
+{
+  "task_id": "004-worker-lifecycle",
+  "status": "external_blocked",
+  "summary": "Implemented worker graceful shutdown and bounded cleanup using signal handling and schedulers.shutdown(). Prevented duplicate scheduled work via a local OS-level file lock in worker_main.py, documenting clearly that this does not constitute true HA distributed locking. Fixed broken MetricCurrent.updated_at reference in aggregator. Tested API/worker separation, lock mechanism, and stop/restart flows locally. Addressed run_all.bat confusion by renaming it to start_services.bat and providing a truthful run_tests.bat.",
+  "tests": [
+    {
+      "command": "$env:PYTHONPATH='backend'; conda run --no-capture-output -n monitor_backend python -m pytest backend/tests/test_worker_lifecycle.py -v",
+      "result": "Passed (3/3 tests)"
+    }
+  ],
+  "external_blockers": [
+    "실행 topology 확정 대기 (Actual High Availability distributed locking mechanism depends on topology and DB support)"
+  ],
+  "remaining_local": [],
+  "changed_files": [
+    "backend/app/worker_main.py",
+    "backend/app/worker.py",
+    "backend/app/scheduler.py",
+    "backend/app/alert_worker.py",
+    "backend/app/aggregator.py",
+    "backend/tests/test_worker_lifecycle.py",
+    "run_all.bat",
+    "run_all_commented.bat",
+    "start_services.bat",
+    "start_services_commented.bat",
+    "run_tests.bat",
+    "docs/03_planning/PRD_ACCEPTANCE_LEDGER_20261002.md"
+  ]
+}

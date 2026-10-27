@@ -1,0 +1,19 @@
+{
+  "task_id": "003-resource-rates",
+  "status": "local_complete",
+  "summary": "Fixed network metrics to use nowrap=False for precise per-interface rates, preserving cumulative metrics with default nowrap. Discontinuous/wrap deltas are cleanly skipped and rebaselined without leaking stale caches on reconnect. A robust E2E test suite simulates psutil platform calls, proving exact float rate calculation, exact metric dimensions, edge-case resets, time wrap, disappeared interfaces, and full agent E2E spooling.",
+  "tests": [
+    {
+      "command": "C:\\Users\\HODI\\anaconda3\\envs\\monitor_backend\\python.exe -m pytest agent/tests/test_resource_rates.py -v",
+      "result": "1 passed"
+    }
+  ],
+  "external_blockers": [],
+  "remaining_local": [],
+  "changed_files": [
+    "agent/collectors/common.py",
+    "agent/tests/test_resource_rates.py",
+    "docs/07_status/PROGRESS.md",
+    "docs/03_planning/PRD_ACCEPTANCE_LEDGER_20261002.md"
+  ]
+}

@@ -183,6 +183,18 @@ class MonitorAgent:
                 logger.error("Flush connection error: %s", e)
                 break
 
+    def _run_iteration(self, current_time: float, last_collect_time: float, last_heartbeat_time: float) -> tuple[float, float]:
+        if current_time - last_heartbeat_time >= settings.HEARTBEAT_INTERVAL_SEC:
+            self.send_heartbeat()
+            last_heartbeat_time = current_time
+
+        if current_time - last_collect_time >= settings.COLLECT_INTERVAL_SEC:
+            self.collect_and_spool()
+            self.flush_spool()
+            last_collect_time = current_time
+            
+        return last_collect_time, last_heartbeat_time
+
     def run(self):
         logger.info("Starting Monitor Agent...")
 
@@ -191,20 +203,14 @@ class MonitorAgent:
                 logger.info("Retrying enrollment in 10 seconds...")
                 time.sleep(10)
 
-        last_collect_time = 0
-        last_heartbeat_time = 0
+        last_collect_time = 0.0
+        last_heartbeat_time = 0.0
 
         while True:
             current_time = time.time()
-
-            if current_time - last_heartbeat_time >= settings.HEARTBEAT_INTERVAL_SEC:
-                self.send_heartbeat()
-                last_heartbeat_time = current_time
-
-            if current_time - last_collect_time >= settings.COLLECT_INTERVAL_SEC:
-                self.collect_and_spool()
-                self.flush_spool()
-                last_collect_time = current_time
+            last_collect_time, last_heartbeat_time = self._run_iteration(
+                current_time, last_collect_time, last_heartbeat_time
+            )
 
             time.sleep(1)
 

@@ -1,0 +1,19 @@
+{
+  "task_id": "003-resource-rates",
+  "status": "local_complete",
+  "summary": "Fixed NET_BYTES_SENT_RATE and NET_BYTES_RECV_RATE in agent/collectors/common.py to calculate real delta over monotonic elapsed time. Handled reset, wrap, zero interval, and first sample correctly. Preserved existing cumulative metrics and public API contracts. Added and passed E2E behavior tests in agent/tests/test_resource_rates.py verifying real psutil wiring.",
+  "tests": [
+    {
+      "command": "$env:PYTHONPATH=\".\"; C:\\Users\\HODI\\anaconda3\\envs\\monitor_backend\\python.exe -m pytest tests/test_resource_rates.py -v (in agent/)",
+      "result": "PASSED (1 passed)"
+    }
+  ],
+  "external_blockers": [],
+  "remaining_local": [],
+  "changed_files": [
+    "agent/collectors/common.py",
+    "agent/tests/test_resource_rates.py",
+    "docs/03_planning/PRD_ACCEPTANCE_LEDGER_20261002.md",
+    "docs/07_status/PROGRESS.md"
+  ]
+}

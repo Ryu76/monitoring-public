@@ -57,5 +57,5 @@ URL/SSL, 로그, Oracle/DB, batch/file, HA, remote command approval, config vers
 
 ## 현재 차단 항목
 
-- 전용 개발 Oracle, 암호화된 개발 설정, 안전한 테스트 계정이 없어 DB 통합·3회 수집·UAT·성능/부하·운영 배포 QA는 실행할 수 없다.
+- 2026-09-21 기준 Oracle 연동(read-only/additive/rollback) 증거는 존재하나, 최신 코드 기반의 검증 완료 상태는 아니다. UAT·성능/부하·운영 배포 QA는 승인 전까지 명시적으로 차단된다.
 - 권한 매트릭스와 Agent credential/등록 정책이 확정되지 않아 SEC-001/AGT-001의 공개 계약을 확정할 수 없다.

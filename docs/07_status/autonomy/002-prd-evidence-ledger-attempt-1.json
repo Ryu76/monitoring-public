@@ -1,0 +1,35 @@
+{
+  "task_id": "002-prd-evidence-ledger",
+  "status": "external_blocked",
+  "summary": "Audited MASTER_PRD_BACKLOG IDs against current code and tests. Copied disposition plan docs. Updated stale Oracle unavailability text. Created PRD_ACCEPTANCE_LEDGER_20261002.md and updated PROGRESS.md with latest pytest/build evidence. Remaining work is externally blocked by Oracle DB, UAT, and unfinalized auth policies.",
+  "tests": [
+    {
+      "command": "conda run --no-capture-output -n monitor_backend python -m pytest backend/tests -q",
+      "result": "61 passed, 9 warnings"
+    },
+    {
+      "command": "conda run --no-capture-output -n monitor_backend python -m compileall -q backend",
+      "result": "pass"
+    },
+    {
+      "command": "cd frontend && npm run build",
+      "result": "pass"
+    }
+  ],
+  "external_blockers": [
+    "Oracle DB environment and access for ING-001, ING-002, ING-004",
+    "Finalization of authorization matrix for SEC-001",
+    "Finalization of Agent token rotation policy for AGT-001",
+    "Finalization of test channel for ALT-001",
+    "UAT and external browser UI verification for MON-004"
+  ],
+  "remaining_local": [],
+  "changed_files": [
+    "docs/03_planning/PRD_ACCEPTANCE_LEDGER_20261002.md",
+    "docs/03_planning/MASTER_PRD_BACKLOG.md",
+    "docs/03_planning/CURRENT_PRD_STATUS_AND_COMPLETION_PLAN_20261002.md",
+    "docs/03_planning/WORKTREE_AND_PR_DISPOSITION_REGISTER_20261002.md",
+    "docs/07_status/PROGRESS.md",
+    "docs/07_status/autonomy/002-prd-evidence-ledger-attempt-1.json"
+  ]
+}

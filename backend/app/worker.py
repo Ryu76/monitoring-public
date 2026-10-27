@@ -128,6 +128,7 @@ def start_worker():
     scheduler.add_job(check_thresholds, 'interval', seconds=30, id='threshold_worker')
     scheduler.start()
     logger.info("Threshold Worker started.")
+    return scheduler
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s - %(message)s')
