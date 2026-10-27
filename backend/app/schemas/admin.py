@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 
@@ -43,8 +43,7 @@ class UserResponse(UserBase):
     last_login_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class GenericResponse(BaseModel):
     success: bool
@@ -62,8 +61,7 @@ class CodeGroupBase(BaseModel):
 class CodeGroupResponse(CodeGroupBase):
     created_at: Optional[datetime] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class CodeBase(BaseModel):
     code: str
@@ -76,5 +74,4 @@ class CodeBase(BaseModel):
 class CodeResponse(CodeBase):
     created_at: Optional[datetime] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

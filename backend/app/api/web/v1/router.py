@@ -83,7 +83,7 @@ def incident_to_dict(inc: Incident, actions: Optional[List[IncidentAction]] = No
 
 
 def provided_fields(model: BaseModel) -> set[str]:
-    return getattr(model, "model_fields_set", getattr(model, "__fields_set__", set()))
+    return getattr(model, "model_fields_set", set())
 
 
 

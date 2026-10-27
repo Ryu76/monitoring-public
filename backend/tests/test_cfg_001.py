@@ -87,7 +87,7 @@ def test_missing_required_secret_fail_closed():
 def test_no_unsafe_sql_secret_fallback():
     # Ensure there's no unsafe fallback if the config doesn't provide a DB_PASSWORD
     from app.core.config import Settings
-    fields = Settings.__fields__ if hasattr(Settings, '__fields__') else Settings.model_fields
+    fields = Settings.model_fields
     db_password_field = fields['DB_PASSWORD']
     assert db_password_field.default in (None, ..., Ellipsis) or not db_password_field.is_required() == False
 

@@ -1,6 +1,6 @@
 """Agent 등록 및 인증 관련 Pydantic 스키마"""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List, Any
 from datetime import datetime
 
@@ -30,8 +30,7 @@ class AgentEnrollData(BaseModel):
     agent_id: int
     status_code: str  # PENDING → 관리자 승인 필요
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AgentEnrollResponse(BaseModel):
