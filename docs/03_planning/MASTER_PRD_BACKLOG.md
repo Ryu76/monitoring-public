@@ -6,6 +6,7 @@
 - Python/Harness/test는 Conda `monitor_backend`만 사용한다.
 - 운영 Oracle·운영 Agent·실제 알림 채널·운영 비밀값은 명시 승인 전 사용하지 않는다.
 - 자동 commit/push/merge/deploy는 하지 않는다.
+- 2026-10-02 현재 병합 상태·검증 공백·worktree 정리 순서는 [현재 PRD 상태 및 완료 계획](CURRENT_PRD_STATUS_AND_COMPLETION_PLAN_20261002.md)과 [Worktree 및 PR 처리 등록부](WORKTREE_AND_PR_DISPOSITION_REGISTER_20261002.md)를 기준으로 한다. 이 백로그의 과거 상태 표기는 당시 기록이며, 현재 코드 반영 여부는 `origin/main`과 병합 PR로 대조한다.
 
 ## 0. 현재 반영·검증 가능한 기준선
 
